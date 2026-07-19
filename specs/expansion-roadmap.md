@@ -297,3 +297,75 @@ Hard prerequisites before any Track A/B module starts:
 - Design system, privilege rules, migration rules, LaTeX-is-local rule: untouched.
 - Nothing in this document is implemented yet. Each module gets its own spec
   session (Step 1) before any schema or code session.
+
+---
+
+## 8. Track C — Candidate Bets (differentiators, NOT sequenced)
+
+These go beyond feature parity with adalat.ai/visiocyber.ai/Pocket — they are
+where Persist could *lead* rather than match. **None is scheduled.** Each is a
+candidate to promote into a phase after an explicit decision + a Step-1 spec.
+Module numbers (M34–M41) are reserved in TASKS.md for a stable vocabulary only.
+
+**Top three bets** (recommended order): M35 Limitation Engine, M36 Order
+Watcher, M38 Firm Brain — strongest combination of daily pain relieved,
+defensible moat, and clean export-to-abroad story.
+
+### M34 — Matter Mind Map (Case Theory Canvas)
+Pocket ships an auto mind map *per conversation* (Central Theme → Branches →
+Nodes, tap-node-to-transcript, Copy-Markdown export). Two lifts for Persist:
+1. **Transcript/document mind maps** — the direct analogue, already folded into
+   M25 and M28 as line items (shared `MindMap.tsx` renderer, nodes linked to
+   transcript timestamps / source paragraphs).
+2. **Matter-scale map (M34)** — the bigger prize: a per-matter graph with the
+   mark/patent/dispute at center; branches for parties, claims/objections,
+   evidence, hearings, deadlines; every node linked to its real record. Because
+   all those objects already live in one SQLite DB, the graph is largely a query
+   plus a renderer. This is CaseMap-class litigation tooling with no strong
+   Indian incumbent, and it pairs naturally with M38 (Firm Brain) and M28's
+   hearing-prep briefs (the brief *is* the map).
+
+### M35 — Limitation Engine ⭐
+Deterministic deadline *law*, not just a tracker: Limitation Act exclusion rules
+(Ss. 4–14), condonation windows, and versioned per-court holiday/vacation
+calendars as data packs. Answers "file by when, in which court, accounting for
+vacations" deterministically with the statutory chain shown; AI only explains,
+never computes. Export play: Madrid/PCT/UKIPO packs turn it into a global
+docketing product where jurisdictions are data, not code. Attorneys trust it
+*because* it isn't an LLM guessing.
+
+### M36 — Order Watcher (eCourts / IP India / TM Journal) ⭐
+Indian orders and registry changes post online late and are checked manually.
+A watcher that polls for the firm's matters, diffs the record, summarizes new
+orders overnight, and proposes the next docket entry by morning would be the
+single most-loved feature. **TM Journal watch** (scan every issue for marks
+confusingly similar to clients' portfolios) is a standalone subscription and an
+ideal three-tier-router similarity workload.
+
+### M37 — Court-Rules Compiler (self-formatting e-filing)
+Per-court formatting rules as data → brief in, filing-ready rule-compliant
+bookmarked PDF (+ court-fee computation) out. Kills e-filing formatting
+rejections; built on the LaTeX pipeline almost no competitor has.
+
+### M38 — Firm Brain (precedent memory with provenance) ⭐
+Private retrieval over every firm draft/opinion/order. Differentiator is not RAG
+but **clause provenance**: every suggested clause traces to a real firm
+precedent with its outcome. Explainable drafting converts skeptical senior
+counsel; the moat compounds with each year of firm data. Builds on HPAS
+VectorMemory; complements M9 and M30's document generator.
+
+### M39 — Bench Analytics (India-first)
+Lex-Machina-style insight over public data (Indian Kanoon, eCourts): interim-
+injunction tendencies in TM matters, median adjournments, time-to-disposal.
+Spec must frame this as insight, not forum-shopping. Genuine first mover.
+
+### M40 — Client-Held Privilege Keys
+Client-shared documents sealed with keys the *client* holds + a verifiable
+privilege log: "your lawyer's software provably cannot leak your documents." A
+trust feature that travels abroad best. Resolve key-custody vs. attorney-access
+against the module-05 signed-URL model in spec.
+
+### M41 — Vernacular Voice Intake
+WhatsApp voice note (Hindi/regional) → structured matter brief (parties, dates,
+grievance, urgency). Closes the loop M25 + M29 only skirt. Reuses M25 STT + M27
+extraction + M29 channel. India-first, portable to any multilingual market.

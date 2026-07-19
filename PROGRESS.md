@@ -13,7 +13,7 @@
 **Phase:** 2 — Billing & Client Portal
 **Week:** 3
 **Active module:** Phase 2 M4 Billing — COMPLETE. Next: Phase 2 M5 (Client Portal spec) — now the critical-path unblock for the expansion roadmap (see `specs/expansion-roadmap.md`).
-**Last session completed:** S09 — 2026-07-19 — Expansion roadmap: Track A (Courtroom Intelligence, M25–M29, adalat.ai-inspired) + Track B (Startup Legal SaaS + Data Protection Audit, M30–M33, visiocyber.ai-inspired) planned; Phases 2.5/8/9 added to TASKS.md
+**Last session completed:** S10 — 2026-07-19 — Track C candidate bets added (M34–M41, incl. Matter Mind Map + Limitation Engine/Order Watcher/Firm Brain top bets); Pocket-inspired transcript/document mind maps folded into M25/M28. S09: expansion roadmap (Track A M25–M29, Track B M30–M33).
 **Last updated:** 2026-07-19
 
 ---
@@ -300,6 +300,25 @@ See `specs/expansion-roadmap.md` §4–5. M31 ships earlier in Phase 2.5.
 
 ---
 
+### Track C — Candidate Bets (NOT sequenced — see specs/expansion-roadmap.md §8)
+
+Differentiators beyond feature-parity. **Nothing scheduled** — each needs an
+explicit promote-into-a-phase decision + Step-1 spec before any work. Top three
+bets: M35, M36, M38.
+
+| Module | Status | Notes |
+|---|---|---|
+| Module 34: Matter Mind Map (Case Theory Canvas) | 🔵 candidate | Pocket-inspired; per-matter graph, nodes linked to records. Transcript/doc mind maps already folded into M25/M28 |
+| Module 35: Limitation Engine ⭐ | 🔵 candidate | Deterministic deadline law (Limitation Act + court calendars as data); export via jurisdiction packs |
+| Module 36: Order Watcher ⭐ | 🔵 candidate | eCourts/IP India poll + TM Journal watch; overnight order summaries → proposed docket entries |
+| Module 37: Court-Rules Compiler | 🔵 candidate | Per-court formatting rules as data → filing-ready PDF via LaTeX pipeline |
+| Module 38: Firm Brain ⭐ | 🔵 candidate | Precedent memory with clause provenance; compounding moat; builds on HPAS VectorMemory |
+| Module 39: Bench Analytics | 🔵 candidate | India-first judge/forum insight over public data; ethics framing required |
+| Module 40: Client-Held Privilege Keys | 🔵 candidate | Client-custody encryption + verifiable privilege log; strongest export/trust feature |
+| Module 41: Vernacular Voice Intake | 🔵 candidate | WhatsApp voice note → structured matter brief; reuses M25/M27/M29 |
+
+---
+
 ## 🐛 Known Issues / Blockers
 
 | ID | Issue | Severity | Status | Notes |
@@ -369,6 +388,7 @@ HETZNER_SYNC_URL=       # Sync server URL (Phase 2 M5)
 | Apr 17 2026 | S07: Phase 2 M4 Billing — spec written, migration 0006_billing.sql (5 tables), queries/billing.rs (5 tests), commands/billing.rs (13 cmds), lib.rs billing commands registered, tauri.ts billing wrappers, BillingHome/TimeTracker/InvoiceList/FirmSettingsPanel. Also: new spec files placed in specs/ (module-02-docketing, auth-rbac, hpas-integration, module-03-documents updated), PROGRESS.md reconciled | specs/*.md, 0006_billing.sql, queries/billing.rs, commands/billing.rs, pages/Billing/*.tsx | cargo test: 30/30, pnpm build: PASS (467 modules, 457kb) |
 | Apr 19 2026 | S08: Phase 2 M4 Billing UI complete — InvoiceDetail.tsx (back/actions/line items/GST panel/payment modal), InvoiceComposer.tsx (client→matter→entries→fixed-fee→GST type→live totals→create), InvoiceList wired (row click→detail, New Invoice→composer), latex.rs real impl (finds pdflatex, tempdir compile, 3 tests), invoice.tex GST-compliant template, client lookup added to generate_invoice_pdf, tempfile moved to [dependencies] | pages/Billing/InvoiceDetail.tsx, InvoiceComposer.tsx, InvoiceList.tsx, services/latex.rs, storage/templates/invoice.tex, commands/billing.rs, Cargo.toml | cargo test: 33/33, pnpm build: PASS (469 modules, 482kb) |
 | Jul 19 2026 | S09: Expansion roadmap (planning only, no code) — researched adalat.ai + visiocyber.ai; wrote specs/expansion-roadmap.md defining Track A Courtroom Intelligence (M25 transcription, M26 hearings/cause lists, M27 doc digitization, M28 research/summarization, M29 WhatsApp chatbot) and Track B Startup Legal SaaS (M30 Startup Legal OS, M31 DP Audit Engine → Phase 2.5, M32 Compliance & AI Governance, M33 Assessments); added Phases 2.5/8/9 to TASKS.md; 4 architecture decisions logged | specs/expansion-roadmap.md (new), TASKS.md, PROGRESS.md, SESSION-LOG/2026-07-19-S09-expansion-roadmap.md | No code changed — tests unaffected (33/33 as of S08) |
+| Jul 19 2026 | S10: Track C candidate bets (planning only) — researched heypocket.com (Pocket AI notes: auto mind maps, Central Theme→Branches→Nodes, tap-to-transcript). Folded transcript/document mind maps into M25/M28; added roadmap §8 + TASKS.md Track C with M34 Matter Mind Map + M35 Limitation Engine⭐ + M36 Order Watcher⭐ + M37 Court-Rules Compiler + M38 Firm Brain⭐ + M39 Bench Analytics + M40 Client-Held Privilege Keys + M41 Vernacular Voice Intake (none sequenced) | specs/expansion-roadmap.md, TASKS.md, PROGRESS.md, SESSION-LOG/2026-07-19-S10-track-c-candidate-bets.md | No code changed — tests unaffected (33/33 as of S08) |
 
 ---
 

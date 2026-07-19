@@ -331,10 +331,12 @@ Prerequisites: Phase 3 AI layer; B02 ip_assets + cascade_engine; B01 sessions.
 ### Module 25: Hearing & Dictation Transcription
 - [ ] Step 1: `specs/module-25-transcription.md` (must include recording-compliance note)
 - [ ] Steps 2–5: `services/transcription.rs` async STT jobs (local whisper.cpp sidecar default; cloud opt-in), English + Hindi launch, legal vocabulary boost, vault-encrypted audio + transcripts, recorder + transcript viewer UI
+- [ ] Steps 2–5: **Transcript mind map** (Pocket-inspired) — auto-generated per transcript: Central Theme (matter/issue) → Branches (topics discussed) → Nodes (facts, instructions, admissions), every node **linked back to its transcript timestamp** (tap node → jump to that moment in the recording). Structured-output pass via HPAS; Deck renderer (`components/transcripts/TranscriptMindMap.tsx`); Copy-Markdown export
 
 ### Module 28: Research & Summarization (delivers M17 + M18 AI surface)
 - [ ] Step 1: `specs/module-28-research.md`
 - [ ] Steps 2–5: judgment/order summarization via HPAS (Opus tier), hearing-prep briefs, citation extraction, summary panel + brief UI
+- [ ] Steps 2–5: **Document mind map** — same renderer as M25, applied to judgments/orders/long documents: Central Theme → issues/holdings → nodes (ratio, obiter, citations), each node linked to the source paragraph. Feeds the hearing-prep brief (the brief IS the map). Shared `TranscriptMindMap.tsx` component generalized to `MindMap.tsx`
 
 ### Module 29: Client Status Chatbot (WhatsApp, multilingual)
 - [ ] Step 1: `specs/module-29-chatbot.md`
@@ -358,6 +360,84 @@ Prerequisites: Phase 4 drafting/template machinery; server-side AI router.
 ### Module 33: Assessment & Advisory Toolkit
 - [ ] Step 1: `specs/module-33-assessments.md`
 - [ ] Steps 2–5: cyber/AI-readiness scored assessments (LaTeX report card), recommendations → M32 remediation backlog, advisory engagement tracker (workshops, materials, follow-ups, M4 invoicing)
+
+---
+
+## Track C — Candidate Bets (differentiators — NOT yet sequenced)
+
+> These are opinion-driven, high-differentiation ideas beyond the committed
+> Phase 0–9 plan. **Nothing here is scheduled.** Each is a *candidate* to pull
+> into a phase once it proves out. They are recorded with module numbers so the
+> conversation has a stable vocabulary. Do NOT start any of these without an
+> explicit decision to promote it into a phase (and a Step-1 spec first).
+> Rationale for each is in `specs/expansion-roadmap.md` §8 (Track C).
+>
+> **Top three bets** (my recommendation, in order): **M35 Limitation Engine**,
+> **M36 Order Watcher**, **M38 Firm Brain**. These have the strongest
+> daily-pain + moat + export story.
+
+### Module 34: Matter Mind Map — Case Theory Canvas (Pocket-inspired, matter-scale)
+- [ ] Step 1: `specs/module-34-matter-mindmap.md`
+- [ ] Concept: per-*matter* graph (not per-conversation). Center = the mark/patent/dispute;
+      branches = parties, claims/objections, evidence, hearings, deadlines; every node
+      linked to its underlying record (vault document, docket entry, transcript segment,
+      order). The graph is largely a SQLite query + renderer since all objects already
+      co-exist in one DB. Litigator "case theory on a canvas" — CaseMap-class, none good in India.
+- Depends on: M25/M28 MindMap renderer, M26 hearings, M27 intake, existing docket/document tables.
+
+### Module 35: Limitation Engine — Deterministic Deadline Law  ⭐ top bet
+- [ ] Step 1: `specs/module-35-limitation-engine.md`
+- [ ] Concept: Limitation Act rules-as-data (Ss. 4–14 exclusions, condonation windows) +
+      versioned per-court holiday/vacation calendars (Delhi HC first). Deterministic answer
+      to "file by when, in which court, accounting for vacations" with the statutory chain
+      shown. AI only *explains* the result — it never computes it. Export play: swap in a
+      Madrid Protocol / PCT / UKIPO pack → global docketing product (jurisdictions = data).
+- Extends: module-02 docketing engine + cascade_engine.
+
+### Module 36: Order Watcher — eCourts / IP India / TM Journal Robot  ⭐ top bet
+- [ ] Step 1: `specs/module-36-order-watcher.md`
+- [ ] Concept: scheduled watcher polling eCourts, High Court sites, and IP India for the
+      firm's own matters; diffs the record; summarizes new orders overnight; proposes the
+      next docket entry by morning. **TM Journal watch** — scan every journal issue for
+      marks confusingly similar to clients' portfolios — is a standalone sellable
+      subscription and a natural three-tier-router similarity workload.
+- Extends: M26 cause_list_watcher pattern, M28 summarization, deadline engine.
+
+### Module 37: Court-Rules Compiler — Self-Formatting E-Filing
+- [ ] Step 1: `specs/module-37-filing-compiler.md`
+- [ ] Concept: per-court formatting rules as data (index style, pagination, bookmarking,
+      paper size, court-fee computation) → brief in, filing-ready rule-compliant bookmarked
+      PDF out, per target court. Kills e-filing formatting rejections. Built on the existing
+      LaTeX pipeline (latex.rs) — a substrate almost no competitor has.
+
+### Module 38: Firm Brain — Precedent Memory with Provenance  ⭐ top bet
+- [ ] Step 1: `specs/module-38-firm-brain.md`
+- [ ] Concept: private retrieval over every draft/opinion/order the firm has produced.
+      Differentiator is NOT RAG — it's **clause provenance**: every AI-suggested clause
+      traces to a real firm precedent with its outcome. Explainable drafting converts
+      skeptical senior counsel. Compounding moat: value grows with each year of firm data.
+- Builds on: HPAS VectorMemory; complements M9 drafting suite + M30 doc generator.
+
+### Module 39: Bench Analytics — Judge/Forum Insight (India-first)
+- [ ] Step 1: `specs/module-39-bench-analytics.md`
+- [ ] Concept: Lex-Machina-style analytics over public data (Indian Kanoon, eCourts) —
+      interim-injunction tendencies in TM matters, median adjournments, time-to-disposal.
+      **Ethics framing required in spec**: insight, not forum-shopping. Genuine first mover.
+
+### Module 40: Client-Held Privilege Keys — Provable Confidentiality
+- [ ] Step 1: `specs/module-40-privilege-keys.md`
+- [ ] Concept: client-shared documents sealed with keys the *client* holds + a verifiable
+      privilege log. "Your lawyer's software provably cannot leak your documents." A trust
+      feature, not an AI feature — and the one that travels abroad best (universal AI-tool
+      privilege anxiety). Interacts with portal signed-URL model (module-05) — resolve
+      key-custody vs. attorney-access carefully in spec.
+
+### Module 41: Vernacular Voice Intake — WhatsApp Voice Note → Matter Brief
+- [ ] Step 1: `specs/module-41-voice-intake.md`
+- [ ] Concept: clients already send Hindi/regional voice notes. Turn one into a structured
+      matter brief (parties, dates, grievance, urgency). Closes the loop M25 (transcription)
+      + M29 (chatbot) only skirt. India-first; portable to any multilingual market.
+- Reuses: M25 STT + M27 structured extraction + M29 WhatsApp channel.
 
 ---
 
