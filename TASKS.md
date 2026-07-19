@@ -298,7 +298,66 @@ HPAS is introduced in three sub-phases within Phase 3. Each sub-phase is trigger
 
 ### Module 12: Client iOS/iPadOS App
 ### E-signature integration
-### Court cause list auto-import
+### Court cause list auto-import → absorbed by Module 26 (Phase 8)
+
+---
+
+## Phase 2.5 — Data Protection Audit Engine (pulled forward — see specs/expansion-roadmap.md §6)
+
+### Module 31: Data Protection Audit Engine (DPDP 2023 / GDPR)
+- [ ] Step 1: `specs/module-31-dp-audit.md`
+- [ ] Step 2: server PostgreSQL migration — dp_audits, dp_questionnaires, dp_data_inventory (RoPA), dp_gaps, dp_evidence, dp_remediations
+- [ ] Step 3: audit workflow API (server) + framework libraries (DPDP 2023, GDPR) as versioned data
+- [ ] Step 3: LaTeX audit report template (`dp_audit_report.tex`) — compiled locally via latex.rs
+- [ ] Step 3: breach-notification (72h) workflow checklist; consent-notice + privacy-policy generators (attorney-approved)
+- [ ] Step 4: attorney-side audit UI (Deck `pages/Advisory/`); client-side questionnaire (portal)
+- [ ] Step 5: validation + first real audit dry-run
+- Prerequisite: Phase 2 M5 portal infra. AI gap-analysis pass upgrades in Phase 3.
+
+---
+
+## Phase 8 — Courtroom & Litigation Intelligence (Track A — adalat.ai-inspired)
+See `specs/expansion-roadmap.md` §3. Build order: M27 → M26 → M25 → M28 → M29.
+Prerequisites: Phase 3 AI layer; B02 ip_assets + cascade_engine; B01 sessions.
+
+### Module 27: Document Digitization & Intake Intelligence
+- [ ] Step 1: `specs/module-27-doc-intelligence.md`
+- [ ] Steps 2–5: LLM-OCR pipeline (`services/doc_intelligence.rs`), structured extraction → document_intake_events, auto-classification, intake review queue UI (AI proposes, attorney confirms — dual verification)
+
+### Module 26: Cause List & Hearing Flow
+- [ ] Step 1: `specs/module-26-hearings.md`
+- [ ] Steps 2–5: `hearings` + `cause_list_imports` tables, `services/cause_list_watcher.rs` (Delhi HC / district courts / IP offices), HearingBoard.tsx, outcome capture → cascade_engine next-deadline chain
+
+### Module 25: Hearing & Dictation Transcription
+- [ ] Step 1: `specs/module-25-transcription.md` (must include recording-compliance note)
+- [ ] Steps 2–5: `services/transcription.rs` async STT jobs (local whisper.cpp sidecar default; cloud opt-in), English + Hindi launch, legal vocabulary boost, vault-encrypted audio + transcripts, recorder + transcript viewer UI
+
+### Module 28: Research & Summarization (delivers M17 + M18 AI surface)
+- [ ] Step 1: `specs/module-28-research.md`
+- [ ] Steps 2–5: judgment/order summarization via HPAS (Opus tier), hearing-prep briefs, citation extraction, summary panel + brief UI
+
+### Module 29: Client Status Chatbot (WhatsApp, multilingual)
+- [ ] Step 1: `specs/module-29-chatbot.md`
+- [ ] Steps 2–5: Meta Cloud API webhook (server), intent handling answered ONLY from PostgreSQL mirror subset, English + Hindi, attorney-escalation to M11 tasks, server-side AI router (§5.2)
+
+---
+
+## Phase 9 — Persist Advisory: Startup Legal SaaS (Track B — visiocyber.ai-inspired)
+See `specs/expansion-roadmap.md` §4–5. M31 already live from Phase 2.5.
+Prerequisites: Phase 4 drafting/template machinery; server-side AI router.
+
+### Module 30: Startup Legal OS (SaaS, multi-tenant)
+- [ ] Step 1: `specs/module-30-startup-os.md` (must ratify §5.1 bifurcated source of truth + tenant model)
+- [ ] Step 2: `tenants` + `tenant_users` (PostgreSQL RLS), subscription tables (`recurring_plans` extends M4)
+- [ ] Steps 3–5: onboarding wizard + startup compliance calendar (cascade-template library), document generator (founder/ESOP/IP-assignment/NDA/DPA/privacy-policy — AI fill + attorney review queue → LaTeX PDF), scoped AI legal Q&A with "Ask an attorney" escalation, TM knock-out intake → firm matter pipeline, attorney console (`pages/Advisory/`)
+
+### Module 32: Compliance & AI Governance
+- [ ] Step 1: `specs/module-32-compliance.md`
+- [ ] Steps 2–5: framework libraries as data (DPDP 2023, SOC 2, ISO 27001, CERT-In 2022, responsible-AI set), control mapping + evidence collection with deadline-engine expiry, posture dashboard, responsible-AI policy generator, vendor/tech evaluation scorecards
+
+### Module 33: Assessment & Advisory Toolkit
+- [ ] Step 1: `specs/module-33-assessments.md`
+- [ ] Steps 2–5: cyber/AI-readiness scored assessments (LaTeX report card), recommendations → M32 remediation backlog, advisory engagement tracker (workshops, materials, follow-ups, M4 invoicing)
 
 ---
 

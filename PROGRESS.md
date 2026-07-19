@@ -12,9 +12,9 @@
 
 **Phase:** 2 — Billing & Client Portal
 **Week:** 3
-**Active module:** Phase 2 M4 Billing — COMPLETE. Next: Phase 1 M2 extended features (ip_assets, cascade engine) or Phase 2 M5 (Client Portal spec).
-**Last session completed:** S08 — 2026-04-19 — Billing UI complete: InvoiceDetail wired, InvoiceComposer, latex.rs real impl, invoice.tex template
-**Last updated:** 2026-04-19
+**Active module:** Phase 2 M4 Billing — COMPLETE. Next: Phase 2 M5 (Client Portal spec) — now the critical-path unblock for the expansion roadmap (see `specs/expansion-roadmap.md`).
+**Last session completed:** S09 — 2026-07-19 — Expansion roadmap: Track A (Courtroom Intelligence, M25–M29, adalat.ai-inspired) + Track B (Startup Legal SaaS + Data Protection Audit, M30–M33, visiocyber.ai-inspired) planned; Phases 2.5/8/9 added to TASKS.md
+**Last updated:** 2026-07-19
 
 ---
 
@@ -23,10 +23,12 @@
 > Fill this section at the start of a session. Clear it when done.
 
 Phase 2 M4 Billing is complete. cargo test: 33/33. pnpm build: PASS (469 modules, 482kb).
-Next options:
-  A) Phase 1 M2 extended features: ip_assets migration, cascade_engine, abandonment_watcher
-  B) Phase 2 M5: write spec + scaffold Client Portal (FastAPI + React)
+S09 added the expansion roadmap (specs/expansion-roadmap.md) — planning only, no code changed.
+Next options (order recommended by roadmap §6):
+  A) Phase 2 M5: write spec + scaffold Client Portal (FastAPI + React) — unblocks Phase 2.5 M31 and all of Track B
+  B) Phase 1 M2 extended features: ip_assets migration, cascade_engine, abandonment_watcher (B02 — prerequisite for Phase 8 M26/M27)
   C) Auth B01: sessions table + 8-hour persistent sessions
+  D) specs/module-31-dp-audit.md — first Track B spec session (after M5)
 
 ---
 
@@ -260,7 +262,41 @@ Next options:
 |---|---|---|
 | Module 12: Client iOS/iPadOS App | ❌ | |
 | E-signature integration | ❌ | |
-| Court cause list auto-import | ❌ | |
+| Court cause list auto-import | ❌ | Absorbed by Module 26 (Phase 8) |
+
+---
+
+### Phase 2.5 — Data Protection Audit Engine (pulled forward, after M5)
+
+| Module | Status | Notes |
+|---|---|---|
+| Module 31: Data Protection Audit Engine (DPDP 2023/GDPR) | ❌ | Roadmap planned (S09) — spec next. RoPA inventory, gap analysis, LaTeX audit reports, breach workflow |
+
+---
+
+### Phase 8 — Courtroom & Litigation Intelligence (Track A — adalat.ai-inspired)
+
+Build order: M27 → M26 → M25 → M28 → M29. See `specs/expansion-roadmap.md` §3.
+
+| Module | Status | Notes |
+|---|---|---|
+| Module 27: Document Digitization & Intake Intelligence | ❌ | LLM-OCR → structured extraction → intake review queue |
+| Module 26: Cause List & Hearing Flow | ❌ | hearings table, cause_list_watcher, HearingBoard; absorbs Phase 7 cause-list item |
+| Module 25: Hearing & Dictation Transcription | ❌ | Local whisper.cpp default, EN+HI, vault-encrypted; compliance flag required |
+| Module 28: Research & Summarization | ❌ | Delivers M17/M18 AI surface; HPAS Opus tier |
+| Module 29: Client Status Chatbot (WhatsApp) | ❌ | Two-way, mirror-subset-only answers, attorney escalation |
+
+---
+
+### Phase 9 — Persist Advisory: Startup Legal SaaS (Track B — visiocyber.ai-inspired)
+
+See `specs/expansion-roadmap.md` §4–5. M31 ships earlier in Phase 2.5.
+
+| Module | Status | Notes |
+|---|---|---|
+| Module 30: Startup Legal OS (SaaS, multi-tenant) | ❌ | Tenants + RLS, compliance calendar, doc generator w/ attorney review, AI Q&A, TM intake, subscriptions |
+| Module 32: Compliance & AI Governance | ❌ | Framework libraries (DPDP/SOC 2/ISO 27001/CERT-In), evidence engine, responsible-AI policy generator, vendor scorecards |
+| Module 33: Assessment & Advisory Toolkit | ❌ | Scored readiness assessments, advisory engagement tracker |
 
 ---
 
@@ -292,6 +328,11 @@ Next options:
 | Apr 2026 | In-memory session (AppState) for Phase 1 auth | Restart always requires re-auth. Persistent sessions (B01) added to spec for Phase 1.5 |
 | Apr 2026 | SF Pro system font as default | Zero network requests, perfect macOS rendering, no FOIT |
 | Apr 2026 | window.__persistLogout pattern for AppShell logout | Avoids prop-drilling through router — LogoutHandler registers fn, AppShell calls it |
+| Jul 2026 | Two expansion tracks: Courtroom Intelligence (M25–M29) + Startup Legal SaaS (M30–M33) | adalat.ai feature parity firm-side; visiocyber.ai-style productized data-protection/compliance services as recurring revenue |
+| Jul 2026 | Bifurcated source of truth: SaaS tenant data is server-native PostgreSQL | One desktop cannot be the write path for N self-serve tenants; firm practice data stays desktop-SQLite-first; separate schemas, no cross-privilege joins (roadmap §5.1) |
+| Jul 2026 | Server-side AI router in `server/` for portal/chatbot/tenant AI traffic | Same three-tier Haiku→Sonnet→Opus discipline; per-tenant token metering feeds subscription billing; tenants never see model names (roadmap §5.2) |
+| Jul 2026 | HPAS ValidationGate as shared lawyer-in-the-loop primitive for all client/tenant-facing AI output | AI output is a draft until attorney approval — liability + ethics backbone of Track B (roadmap §5.3) |
+| Jul 2026 | M31 DP Audit Engine pulled forward to Phase 2.5 (before Phase 3 AI) | Needs only portal + billing + LaTeX (all built after M5); nearest-term revenue; AI gap-analysis upgrades later |
 
 ---
 
@@ -327,6 +368,7 @@ HETZNER_SYNC_URL=       # Sync server URL (Phase 2 M5)
 | Apr 15 2026 | S06: Auth complete — migration 0005_users.sql, queries/users.rs (3 tests), commands/auth.rs (login/logout/get_session), user seeding, stores/auth.ts, LoginScreen.tsx, SessionGate, AppShell live session + logout, SF Pro fonts, drafting font catalogue | All auth files, design system | cargo test: 25/25, pnpm build: PASS (439kb) |
 | Apr 17 2026 | S07: Phase 2 M4 Billing — spec written, migration 0006_billing.sql (5 tables), queries/billing.rs (5 tests), commands/billing.rs (13 cmds), lib.rs billing commands registered, tauri.ts billing wrappers, BillingHome/TimeTracker/InvoiceList/FirmSettingsPanel. Also: new spec files placed in specs/ (module-02-docketing, auth-rbac, hpas-integration, module-03-documents updated), PROGRESS.md reconciled | specs/*.md, 0006_billing.sql, queries/billing.rs, commands/billing.rs, pages/Billing/*.tsx | cargo test: 30/30, pnpm build: PASS (467 modules, 457kb) |
 | Apr 19 2026 | S08: Phase 2 M4 Billing UI complete — InvoiceDetail.tsx (back/actions/line items/GST panel/payment modal), InvoiceComposer.tsx (client→matter→entries→fixed-fee→GST type→live totals→create), InvoiceList wired (row click→detail, New Invoice→composer), latex.rs real impl (finds pdflatex, tempdir compile, 3 tests), invoice.tex GST-compliant template, client lookup added to generate_invoice_pdf, tempfile moved to [dependencies] | pages/Billing/InvoiceDetail.tsx, InvoiceComposer.tsx, InvoiceList.tsx, services/latex.rs, storage/templates/invoice.tex, commands/billing.rs, Cargo.toml | cargo test: 33/33, pnpm build: PASS (469 modules, 482kb) |
+| Jul 19 2026 | S09: Expansion roadmap (planning only, no code) — researched adalat.ai + visiocyber.ai; wrote specs/expansion-roadmap.md defining Track A Courtroom Intelligence (M25 transcription, M26 hearings/cause lists, M27 doc digitization, M28 research/summarization, M29 WhatsApp chatbot) and Track B Startup Legal SaaS (M30 Startup Legal OS, M31 DP Audit Engine → Phase 2.5, M32 Compliance & AI Governance, M33 Assessments); added Phases 2.5/8/9 to TASKS.md; 4 architecture decisions logged | specs/expansion-roadmap.md (new), TASKS.md, PROGRESS.md, SESSION-LOG/2026-07-19-S09-expansion-roadmap.md | No code changed — tests unaffected (33/33 as of S08) |
 
 ---
 
