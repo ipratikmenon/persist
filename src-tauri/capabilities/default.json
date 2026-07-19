@@ -1,0 +1,15 @@
+{
+  "$schema": "https://schema.tauri.app/security/capability/2",
+  "identifier": "default",
+  "description": "Default capabilities for Persist Desktop",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "shell:default",
+    "fs:default",
+    "dialog:default",
+    "notification:default",
+    "global-shortcut:allow-register",
+    "global-shortcut:allow-unregister"
+  ]
+}

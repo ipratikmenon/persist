@@ -1,0 +1,70 @@
+/* Persist global CSS — design tokens as CSS variables */
+/* All fonts are system fonts — no network requests required.
+   SF Pro is Apple's system font. -apple-system maps to SF Pro Text/Display
+   automatically on macOS/iOS based on size context. */
+
+:root {
+  /* Colours */
+  --color-bg-primary:        #F9F7F4;
+  --color-bg-secondary:      #F0ECE5;
+  --color-bg-tertiary:       #E8EDE6;
+  --color-text-primary:      #2C2C2A;
+  --color-text-secondary:    #6B6862;
+  --color-text-tertiary:     #9A9590;
+  --color-accent-primary:    #4A6580;
+  --color-accent-secondary:  #B5604A;
+  --color-status-urgent:     #C0392B;
+  --color-status-warning:    #D4872A;
+  --color-status-clear:      #4A7C59;
+  --color-border:            #E2DDD8;
+
+  /* Typography — SF Pro system stack.
+     -apple-system  → SF Pro Text (body) / SF Pro Display (headings) on macOS
+     BlinkMacSystemFont → Chrome on macOS (same as -apple-system)
+     system-ui      → cross-platform fallback
+     SF Mono        → Apple's monospaced variant, falls back to Menlo then Monaco */
+  --font-display:   -apple-system, "SF Pro Display", BlinkMacSystemFont, system-ui, sans-serif;
+  --font-ui:        -apple-system, "SF Pro Text",    BlinkMacSystemFont, system-ui, sans-serif;
+  --font-legal:     Georgia, 'Times New Roman', serif;   /* drafting default — user-selectable */
+  --font-mono:      "SF Mono", ui-monospace, Menlo, Monaco, monospace;
+
+  /* Spacing scale */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+
+  /* Card */
+  --card-radius:  10px;
+  --card-shadow:  0 1px 4px rgba(0, 0, 0, 0.06);
+  --card-border:  0.5px solid var(--color-border);
+
+  /* Motion */
+  --duration-fast:    150ms;
+  --duration-normal:  300ms;
+  --ease-out-expo:    cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background: var(--color-bg-primary);
+  color: var(--color-text-primary);
+  font-family: var(--font-ui);
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}

@@ -1,0 +1,209 @@
+% Persist Legal Invoice — GST Compliant
+% Template variables: {{KEY}} — substituted by latex.rs before compilation.
+% DO NOT use braces inside variable values; they are LaTeX-special characters.
+%
+% Required variables:
+%   INVOICE_ID, INVOICE_DATE, DUE_DATE
+%   FIRM_NAME, FIRM_GSTIN, FIRM_ADDRESS, FIRM_PAN, FIRM_BANK
+%   CLIENT_NAME, CLIENT_GSTIN, CLIENT_ADDRESS
+%   LINE_ITEMS_TABLE (pre-built LaTeX tabular rows)
+%   SUBTOTAL, CGST_AMOUNT, SGST_AMOUNT, IGST_AMOUNT, TOTAL
+%   AMOUNT_IN_WORDS, SAC_CODE, GST_TYPE, NOTES
+
+\documentclass[11pt,a4paper]{article}
+
+% ── Packages ─────────────────────────────────────────────────────────────────
+\usepackage[
+  top=20mm, bottom=20mm, left=22mm, right=22mm
+]{geometry}
+\usepackage{fontenc}
+\usepackage{inputenc}
+\usepackage{microtype}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{array}
+\usepackage{longtable}
+\usepackage{colortbl}
+\usepackage{xcolor}
+\usepackage{graphicx}
+\usepackage{fancyhdr}
+\usepackage{multirow}
+\usepackage{hhline}
+\usepackage{calc}
+\usepackage{enumitem}
+\usepackage[hidelinks]{hyperref}
+\usepackage{parskip}
+
+% ── Colour palette (matches Persist design tokens) ────────────────────────────
+\definecolor{accentBlue}{RGB}{74,101,128}      % --color-accent-primary
+\definecolor{textPrimary}{RGB}{44,44,42}        % --color-text-primary
+\definecolor{textSecondary}{RGB}{107,104,98}    % --color-text-secondary
+\definecolor{borderGray}{RGB}{226,221,216}      % --color-border
+\definecolor{bgSecondary}{RGB}{240,236,229}     % --color-bg-secondary
+\definecolor{statusGreen}{RGB}{74,124,89}       % --color-status-clear
+
+% ── Typography ────────────────────────────────────────────────────────────────
+\renewcommand{\familydefault}{\rmdefault}
+\setlength{\parindent}{0pt}
+
+% ── Header / footer ───────────────────────────────────────────────────────────
+\pagestyle{fancy}
+\fancyhf{}
+\renewcommand{\headrulewidth}{0pt}
+\fancyfoot[C]{%
+  \footnotesize\color{textSecondary}
+  Page \thepage\ — {{FIRM_NAME}} — GSTIN: {{FIRM_GSTIN}} — PAN: {{FIRM_PAN}}%
+}
+
+% ── Column type for right-aligned fixed-width ─────────────────────────────────
+\newcolumntype{R}[1]{>{\raggedleft\arraybackslash}p{#1}}
+\newcolumntype{L}[1]{>{\raggedright\arraybackslash}p{#1}}
+\newcolumntype{C}[1]{>{\centering\arraybackslash}p{#1}}
+
+% ─────────────────────────────────────────────────────────────────────────────
+\begin{document}
+\color{textPrimary}
+
+% ══════════════════════════════════════════════════════════════════════════════
+% HEADER BAND
+% ══════════════════════════════════════════════════════════════════════════════
+\begin{tabular}{@{}L{0.55\textwidth}R{0.42\textwidth}@{}}
+  % Firm identity
+  {\LARGE\bfseries\color{accentBlue} {{FIRM_NAME}}}
+  \newline
+  \vspace{2pt}
+  {\small\color{textSecondary} {{FIRM_ADDRESS}}}
+  \newline
+  {\small\color{textSecondary} GSTIN: \textbf{{{FIRM_GSTIN}}} \quad PAN: \textbf{{{FIRM_PAN}}}}
+  &
+  % Invoice identity
+  {\LARGE\bfseries TAX INVOICE}
+  \newline
+  \vspace{4pt}
+  {\small\color{textSecondary}
+    \begin{tabular}{@{}rl@{}}
+      Invoice No.: & \textbf{{{INVOICE_ID}}} \\[2pt]
+      Date:        & {{INVOICE_DATE}} \\[2pt]
+      Due Date:    & {{DUE_DATE}} \\
+    \end{tabular}
+  }
+\end{tabular}
+
+\vspace{2mm}
+{\color{borderGray}\rule{\textwidth}{0.4pt}}
+\vspace{3mm}
+
+% ══════════════════════════════════════════════════════════════════════════════
+% BILLED TO / REMIT TO
+% ══════════════════════════════════════════════════════════════════════════════
+\begin{tabular}{@{}L{0.48\textwidth}L{0.48\textwidth}@{}}
+  % Bill-to block
+  \cellcolor{bgSecondary}
+  \begin{minipage}[t]{0.46\textwidth}\vspace{3pt}
+    {\small\bfseries\color{textSecondary} BILLED TO}\\[4pt]
+    {\bfseries {{CLIENT_NAME}}}\\[2pt]
+    {\small {{CLIENT_ADDRESS}}}\\[2pt]
+    {\small GSTIN: {{CLIENT_GSTIN}}}
+    \vspace{3pt}
+  \end{minipage}
+  &
+  % Remit-to block
+  \cellcolor{bgSecondary}
+  \begin{minipage}[t]{0.46\textwidth}\vspace{3pt}
+    {\small\bfseries\color{textSecondary} REMIT PAYMENT TO}\\[4pt]
+    {\small {{FIRM_BANK}}}
+    \vspace{3pt}
+  \end{minipage}
+\end{tabular}
+
+\vspace{5mm}
+
+% ══════════════════════════════════════════════════════════════════════════════
+% LINE ITEMS TABLE
+% ══════════════════════════════════════════════════════════════════════════════
+{\small
+\begin{longtable}{@{}
+    C{1.8cm}   % Activity code
+    L{7.5cm}   % Description
+    R{1.6cm}   % Hours
+    R{2.2cm}   % Rate
+    R{2.5cm}   % Amount
+  @{}}
+\toprule
+\rowcolor{accentBlue}
+\color{white}\bfseries Code &
+\color{white}\bfseries Description &
+\color{white}\bfseries Hrs &
+\color{white}\bfseries Rate (₹) &
+\color{white}\bfseries Amount (₹) \\
+\midrule
+\endhead
+{{LINE_ITEMS_TABLE}}
+\bottomrule
+\end{longtable}
+}
+
+\vspace{3mm}
+
+% ══════════════════════════════════════════════════════════════════════════════
+% TOTALS PANEL (right-aligned)
+% ══════════════════════════════════════════════════════════════════════════════
+\hfill
+\begin{tabular}{@{}L{5cm}R{3.5cm}@{}}
+  Subtotal (before GST) & ₹{{SUBTOTAL}} \\[3pt]
+  \hline
+\end{tabular}
+
+\vspace{1mm}
+
+% GST breakout — show CGST+SGST for Intra, IGST for Inter
+\hfill
+\begin{tabular}{@{}L{5cm}R{3.5cm}@{}}
+  CGST @ 9\% (SAC {{SAC_CODE}}) & ₹{{CGST_AMOUNT}} \\[2pt]
+  SGST @ 9\% (SAC {{SAC_CODE}}) & ₹{{SGST_AMOUNT}} \\[2pt]
+  IGST @ 18\% (SAC {{SAC_CODE}}) & ₹{{IGST_AMOUNT}} \\[3pt]
+  \hline
+  \rule{0pt}{5pt}
+  {\bfseries\large Total Amount Due} & {\bfseries\large ₹{{TOTAL}}} \\
+\end{tabular}
+
+\vspace{4mm}
+
+% Amount in words
+\noindent\textbf{Amount in Words:}\quad \textit{{{AMOUNT_IN_WORDS}}}
+
+\vspace{4mm}
+{\color{borderGray}\rule{\textwidth}{0.4pt}}
+\vspace{3mm}
+
+% ══════════════════════════════════════════════════════════════════════════════
+% NOTES + DECLARATION
+% ══════════════════════════════════════════════════════════════════════════════
+\begin{tabular}{@{}L{0.55\textwidth}L{0.40\textwidth}@{}}
+  % Notes
+  \begin{minipage}[t]{0.53\textwidth}
+    {\small\bfseries\color{textSecondary} NOTES}\\[4pt]
+    {\small {{NOTES}}}
+  \end{minipage}
+  &
+  % Declaration
+  \begin{minipage}[t]{0.38\textwidth}
+    {\small\bfseries\color{textSecondary} DECLARATION}\\[4pt]
+    {\footnotesize We declare that this invoice shows the actual price of the services described
+    and that all particulars are true and correct.}\\[8pt]
+    {\small For \textbf{{{FIRM_NAME}}}}\\[16pt]
+    {\small Authorised Signatory}
+  \end{minipage}
+\end{tabular}
+
+\vspace{3mm}
+{\color{borderGray}\rule{\textwidth}{0.4pt}}
+
+% ── Footer note ───────────────────────────────────────────────────────────────
+{\footnotesize\color{textSecondary}
+This is a computer-generated invoice. Legal services classified under SAC code \textbf{{{SAC_CODE}}}.
+GST treatment: \textbf{{{GST_TYPE}}-state}.
+Subject to Delhi jurisdiction.
+}
+
+\end{document}

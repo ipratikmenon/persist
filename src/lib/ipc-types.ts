@@ -1,0 +1,462 @@
+// IPC types — TypeScript interfaces that MUST stay in sync with Rust command return types.
+// When you change a Keel command's return type, update this file immediately.
+// Source of truth: src-tauri/src/commands/
+
+// ---------------------------------------------------------------------------
+// AI
+// ---------------------------------------------------------------------------
+
+export interface AIRequestParams {
+  taskType: string;
+  context: string;
+  prompt: string;
+  deepAnalysis?: boolean;
+}
+
+export interface AIResponse {
+  content: string;
+  /** model_used is for logging only — never display this to users */
+  modelUsed: string;
+  taskType: string;
+}
+
+// ---------------------------------------------------------------------------
+// Auth
+// ---------------------------------------------------------------------------
+
+export type UserRole = 'Partner' | 'Associate' | 'Paralegal' | 'Admin';
+
+export interface Session {
+  userId: string;
+  name: string;
+  role: UserRole;
+  email: string;
+}
+
+// ---------------------------------------------------------------------------
+// Clients
+// ---------------------------------------------------------------------------
+
+export type ClientType = 'Individual' | 'Company' | 'Partnership' | 'Trust' | 'Other';
+
+export interface Client {
+  id: string;
+  name: string;
+  clientType: ClientType;  // Rust: client_type → camelCase → clientType
+  email: string | null;
+  phone: string | null;
+  address: string | null;
+  gstin: string | null;
+  pan: string | null;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateClientInput {
+  name: string;
+  clientType: ClientType;  // Rust: client_type → camelCase → clientType
+  email?: string;
+  phone?: string;
+  address?: string;
+  gstin?: string;
+  pan?: string;
+}
+
+export interface UpdateClientInput {
+  name?: string;
+  clientType?: ClientType;  // Rust: client_type → camelCase → clientType
+  email?: string;
+  phone?: string;
+  address?: string;
+  gstin?: string;
+  pan?: string;
+  isActive?: boolean;
+}
+
+// ---------------------------------------------------------------------------
+// Matters
+// ---------------------------------------------------------------------------
+
+export type MatterType =
+  | 'Trademark'
+  | 'Patent'
+  | 'Design'
+  | 'Copyright'
+  | 'Corporate'
+  | 'Litigation'
+  | 'Paralegal';
+
+export type MatterStatus =
+  | 'Active'
+  | 'OnHold'
+  | 'PendingClientResponse'
+  | 'Closed'
+  | 'Archived';
+
+export type MatterPriority = 'Normal' | 'High' | 'Urgent';
+
+export interface MatterParty {
+  userId: string;
+  role: UserRole;
+  isPrimary: boolean;
+  name: string; // denormalised for display
+}
+
+export interface Matter {
+  id: string; // P&P-YYYY-TYPE-NNNN
+  clientId: string;
+  title: string;
+  matterType: MatterType;
+  subType: string | null;
+  status: MatterStatus;
+  priority: MatterPriority;
+  responsiblePartnerId: string | null;
+  forum: string | null;
+  jurisdiction: string;
+  openedDate: string;
+  targetCloseDate: string | null;
+  internalNotes: string | null; // NEVER shown in client portal
+  clientNotes: string | null;
+  tags: string[];
+  linkedMatterIds: string[];
+  parties: MatterParty[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface MatterSummary {
+  id: string;
+  title: string;
+  clientName: string;
+  matterType: MatterType;
+  status: MatterStatus;
+  priority: MatterPriority;
+  responsibleAttorney: string | null;
+  nextDeadlineDate: string | null;
+  nextDeadlineEvent: string | null;
+  updatedAt: string;
+}
+
+export interface MatterFilter {
+  status?: MatterStatus[];
+  matterType?: MatterType[];
+  responsibleUserId?: string;
+  clientId?: string;
+  priority?: MatterPriority[];
+}
+
+export interface CreateMatterInput {
+  clientId: string;
+  title: string;
+  matterType: MatterType;
+  subType?: string;
+  priority?: MatterPriority;
+  forum?: string;
+  jurisdiction?: string;
+  openedDate: string;
+  targetCloseDate?: string;
+  internalNotes?: string;
+  clientNotes?: string;
+  tags?: string[];
+}
+
+export interface UpdateMatterInput {
+  title?: string;
+  subType?: string;
+  priority?: MatterPriority;
+  forum?: string;
+  targetCloseDate?: string;
+  internalNotes?: string;
+  clientNotes?: string;
+  tags?: string[];
+  linkedMatterIds?: string[];
+}
+
+// ---------------------------------------------------------------------------
+// Deadlines
+// ---------------------------------------------------------------------------
+
+export type DeadlineStatus = 'Pending' | 'Complete' | 'Waived';
+export type UrgencyTier = 'Overdue' | 'Critical' | 'Warning' | 'Normal';
+export type EventType = 'Statutory' | 'Procedural' | 'Custom';
+
+export interface Deadline {
+  id: string;
+  matterId: string;
+  docketingEvent: string;
+  eventType: EventType;
+  dueDate: string;
+  status: DeadlineStatus;
+  urgency: UrgencyTier;
+  notes: string | null;
+  completedAt: string | null;
+  completedBy: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** Denormalised view for DocketList — includes matter + client name. */
+export interface DeadlineSummary {
+  id: string;
+  matterId: string;
+  matterTitle: string;
+  matterType: MatterType;
+  clientName: string;
+  docketingEvent: string;
+  eventType: EventType;
+  dueDate: string;
+  status: DeadlineStatus;
+  urgency: UrgencyTier;
+  notes: string | null;
+  updatedAt: string;
+}
+
+/** Standard statutory/procedural template for a given matter type. */
+export interface StatutoryTemplate {
+  event: string;
+  eventType: Exclude<EventType, 'Custom'>;
+  description: string;
+  typicalDaysFromFiling: number | null;
+}
+
+export interface CreateDeadlineInput {
+  matterId: string;
+  docketingEvent: string;
+  eventType?: EventType;
+  dueDate: string;
+  notes?: string;
+}
+
+export interface UpdateDeadlineInput {
+  docketingEvent?: string;
+  dueDate?: string;
+  notes?: string;
+}
+
+// ---------------------------------------------------------------------------
+// Documents
+// ---------------------------------------------------------------------------
+
+export type DocumentCategory =
+  | 'Correspondence'
+  | 'Filing'
+  | 'Certificate'
+  | 'SearchReport'
+  | 'Invoice'
+  | 'Contract'
+  | 'Other';
+
+export interface DocumentMeta {
+  id: string;
+  matterId: string;
+  filename: string;
+  category: DocumentCategory;
+  mimeType: string;
+  fileSizeBytes: number;
+  version: number;
+  uploadedBy: string;
+  isSharedWithClient: boolean;
+  description: string | null;
+  createdAt: string;
+  updatedAt: string;
+  // vault_path intentionally absent — never sent from Keel to Deck
+}
+
+export interface UploadDocumentInput {
+  matterId: string;
+  filename: string;
+  category: DocumentCategory;
+  mimeType?: string;
+  description?: string;
+  /** Raw file bytes — Deck reads via Tauri FS plugin and passes here. */
+  bytes: number[];
+}
+
+// ---------------------------------------------------------------------------
+// Billing (Phase 2 M4)
+// ---------------------------------------------------------------------------
+
+export type ActivityCode = 'L100' | 'L200' | 'L300' | 'L400' | 'L500' | 'L600' | 'L700' | 'L800' | 'L900';
+export type InvoiceStatus = 'Draft' | 'Sent' | 'Paid' | 'PartiallyPaid' | 'Cancelled';
+export type PaymentMethod = 'BankTransfer' | 'Cheque' | 'Cash' | 'UPI' | 'NEFT' | 'RTGS';
+export type GstType = 'Intra' | 'Inter';
+
+export const ACTIVITY_CODES: { code: ActivityCode; label: string }[] = [
+  { code: 'L100', label: 'Consultation' },
+  { code: 'L200', label: 'Research' },
+  { code: 'L300', label: 'Drafting' },
+  { code: 'L400', label: 'Filing' },
+  { code: 'L500', label: 'Review' },
+  { code: 'L600', label: 'Hearing' },
+  { code: 'L700', label: 'Client Comm.' },
+  { code: 'L800', label: 'Administrative' },
+  { code: 'L900', label: 'Travel' },
+];
+
+export interface FirmSettings {
+  firmName: string;
+  firmGstin: string | null;
+  firmAddress: string | null;
+  firmPan: string | null;
+  bankName: string | null;
+  bankAccount: string | null;
+  bankIfsc: string | null;
+  defaultHourlyRate: number;
+  partnerRate: number;
+  associateRate: number;
+  paralegalRate: number;
+  gstRate: number;
+  updatedAt: string;
+}
+
+export interface TimeEntry {
+  id: string;
+  matterId: string;
+  userId: string;
+  date: string;
+  hours: number;
+  description: string;
+  activityCode: ActivityCode;
+  ratePerHour: number;
+  amount: number;       // hours * ratePerHour — computed by Keel
+  isBillable: boolean;
+  isInvoiced: boolean;
+  invoiceId: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface Invoice {
+  id: string;
+  clientId: string;
+  matterIds: string[];
+  status: InvoiceStatus;
+  invoiceDate: string;
+  dueDate: string | null;
+  subtotal: number;
+  cgstAmount: number;
+  sgstAmount: number;
+  igstAmount: number;
+  totalWithTax: number;
+  amountPaid: number;
+  balanceDue: number;   // totalWithTax - amountPaid — computed by Keel
+  notes: string | null;
+  gstType: GstType;
+  pdfDocId: string | null;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface InvoiceSummary {
+  id: string;
+  clientName: string;
+  status: InvoiceStatus;
+  invoiceDate: string;
+  dueDate: string | null;
+  totalWithTax: number;
+  amountPaid: number;
+  balanceDue: number;
+  isOverdue: boolean;
+}
+
+export interface InvoiceLineItem {
+  id: string;
+  invoiceId: string;
+  timeEntryId: string | null;
+  description: string;
+  activityCode: string | null;
+  hours: number | null;
+  rate: number;
+  amount: number;
+  sortOrder: number;
+}
+
+export interface Payment {
+  id: string;
+  invoiceId: string;
+  amount: number;
+  paymentDate: string;
+  method: PaymentMethod;
+  reference: string | null;
+  notes: string | null;
+  recordedBy: string;
+  createdAt: string;
+}
+
+export interface UnbilledSummary {
+  matterId: string;
+  totalHours: number;
+  totalAmount: number;
+  entryCount: number;
+}
+
+export interface CreateTimeEntryInput {
+  matterId: string;
+  date: string;
+  hours: number;
+  description: string;
+  activityCode?: ActivityCode;
+  isBillable?: boolean;
+}
+
+export interface UpdateTimeEntryInput {
+  date?: string;
+  hours?: number;
+  description?: string;
+  activityCode?: ActivityCode;
+  isBillable?: boolean;
+}
+
+export interface LineItemInput {
+  timeEntryId?: string;
+  description: string;
+  activityCode?: string;
+  hours?: number;
+  rate: number;
+  amount: number;
+  sortOrder: number;
+}
+
+export interface CreateInvoiceInput {
+  clientId: string;
+  matterIds: string[];
+  invoiceDate: string;
+  dueDate?: string;
+  gstType: GstType;
+  lineItems: LineItemInput[];
+  notes?: string;
+}
+
+export interface RecordPaymentInput {
+  invoiceId: string;
+  amount: number;
+  paymentDate: string;
+  method: PaymentMethod;
+  reference?: string;
+  notes?: string;
+}
+
+export interface UpdateFirmSettingsInput {
+  firmName?: string;
+  firmGstin?: string;
+  firmAddress?: string;
+  firmPan?: string;
+  bankName?: string;
+  bankAccount?: string;
+  bankIfsc?: string;
+  partnerRate?: number;
+  associateRate?: number;
+  paralegalRate?: number;
+}
+
+// ---------------------------------------------------------------------------
+// Sync
+// ---------------------------------------------------------------------------
+
+export interface SyncStatus {
+  lastSyncedAt: string | null;
+  isSyncing: boolean;
+  pendingChanges: number;
+}
