@@ -14,7 +14,10 @@ import type {
   CreateTimeEntryInput,
   Deadline,
   DeadlineSummary,
+  CascadeAnchor,
+  CascadePreview,
   DocumentMeta,
+  Escalation,
   ExportedDocument,
   CreateIpAssetInput,
   FirmSettings,
@@ -37,6 +40,7 @@ import type {
   UpdateClientInput,
   UpdateDeadlineInput,
   UpdateFirmSettingsInput,
+  UpcomingRenewal,
   UpdateIpAssetInput,
   UpdateMatterInput,
   UpdateTimeEntryInput,
@@ -125,6 +129,29 @@ export const keel = {
     /** Rejected by Keel while deadlines still reference the asset. */
     delete: (id: string) =>
       invoke<void>('delete_ip_asset', { id }),
+    /** Firm-wide renewals due within `withinDays` (default 365), plus lapsed. */
+    upcomingRenewals: (withinDays?: number) =>
+      invoke<UpcomingRenewal[]>('list_upcoming_renewals', { withinDays }),
+  },
+
+  // ---- Cascade + escalations --------------------------------------------
+  cascade: {
+    /** Show the chain an anchor would produce. Writes nothing. */
+    preview: (anchor: CascadeAnchor) =>
+      invoke<CascadePreview>('preview_cascade', { anchor }),
+    /** Persist the chain. Refuses if already generated for that asset. */
+    generate: (anchor: CascadeAnchor) =>
+      invoke<number>('generate_cascade', { anchor }),
+    /** Anchor event types that have a template, for the picker. */
+    listAnchors: (ipType: string) =>
+      invoke<string[]>('list_cascade_anchors', { ipType }),
+  },
+
+  escalations: {
+    list: (includeResolved?: boolean) =>
+      invoke<Escalation[]>('list_escalations', { includeResolved }),
+    resolve: (id: string, action: string) =>
+      invoke<void>('resolve_escalation', { id, action }),
   },
 
   // ---- Billing ----------------------------------------------------------

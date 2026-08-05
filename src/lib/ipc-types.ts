@@ -181,7 +181,8 @@ export interface UpdateMatterInput {
 // Deadlines
 // ---------------------------------------------------------------------------
 
-export type DeadlineStatus = 'Pending' | 'Complete' | 'Waived';
+/** 'Missed' is terminal and set only by abandonment_watcher, never by a user. */
+export type DeadlineStatus = 'Pending' | 'Complete' | 'Waived' | 'Missed';
 export type UrgencyTier = 'Overdue' | 'Critical' | 'Warning' | 'Normal';
 export type EventType = 'Statutory' | 'Procedural' | 'Custom';
 
@@ -306,6 +307,71 @@ export interface CreateIpAssetInput {
 }
 
 /** Every field optional — only what is supplied is written. */
+// ---------------------------------------------------------------------------
+// Cascade + escalations — Phase 1 Module 2 extended
+// ---------------------------------------------------------------------------
+
+/** The event a statutory chain is generated from. Always a real, dated event. */
+export interface CascadeAnchor {
+  matterId: string;
+  ipAssetId: string;
+  /** e.g. 'TMApplication', 'PatentFER' — must have a cascade_templates row. */
+  eventType: string;
+  /** YYYY-MM-DD — the date the anchor event actually occurred. */
+  anchorDate: string;
+}
+
+export interface ProposedDeadline {
+  docketingEvent: string;
+  eventType: EventType;
+  dueDate: string;
+  isClientVisible: boolean;
+  /** True for the firm's internal working date ahead of a statutory one. */
+  isInternalBuffer: boolean;
+  notes: string | null;
+}
+
+export interface CascadePreview {
+  templateId: string;
+  anchorEvent: string;
+  anchorDate: string;
+  /** When the statutory periods were last confirmed against the Act. */
+  lastVerified: string;
+  templateNotes: string | null;
+  deadlines: ProposedDeadline[];
+}
+
+/** 1 = 14 days out, 2 = 7 days, 3 = 3 days, 4 = missed. */
+export type EscalationLevel = 1 | 2 | 3 | 4;
+
+export interface Escalation {
+  id: string;
+  deadlineId: string;
+  escalationLevel: EscalationLevel;
+  triggeredAt: string;
+  resolutionAction: string | null;
+  resolvedAt: string | null;
+  resolvedBy: string | null;
+  docketingEvent: string;
+  dueDate: string;
+  matterId: string;
+  matterTitle: string;
+}
+
+/** Firm-wide renewal row for the Renewal Dashboard. */
+export interface UpcomingRenewal {
+  id: string;
+  matterId: string;
+  assetType: IpAssetType;
+  title: string;
+  registrationNumber: string | null;
+  expiryDate: string;
+  status: IpAssetStatus;
+  jurisdiction: string;
+  matterTitle: string;
+  clientName: string;
+}
+
 export interface UpdateIpAssetInput {
   assetType?: IpAssetType;
   title?: string;

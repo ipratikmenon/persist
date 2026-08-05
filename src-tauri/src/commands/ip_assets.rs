@@ -34,6 +34,22 @@ pub struct IpAsset {
     pub updated_at:            String,
 }
 
+/// Denormalised renewal row for the firm-wide dashboard.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpcomingRenewal {
+    pub id:                  String,
+    pub matter_id:           String,
+    pub asset_type:          String,
+    pub title:               String,
+    pub registration_number: Option<String>,
+    pub expiry_date:         String,
+    pub status:              String,
+    pub jurisdiction:        String,
+    pub matter_title:        String,
+    pub client_name:         String,
+}
+
 // ---------------------------------------------------------------------------
 // Input types
 // ---------------------------------------------------------------------------
@@ -117,6 +133,35 @@ fn validate(
 // ---------------------------------------------------------------------------
 // Commands
 // ---------------------------------------------------------------------------
+
+/// Firm-wide renewal view: assets whose renewal falls inside `withinDays`
+/// (default 365), plus anything already lapsed.
+#[tauri::command]
+pub async fn list_upcoming_renewals(
+    within_days: Option<i64>,
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<UpcomingRenewal>, String> {
+    let pool = { state.db.lock().await.clone() };
+    let rows = ip_asset_queries::list_upcoming_renewals(&pool, within_days.unwrap_or(365))
+        .await
+        .map_err(|e| e.to_string())?;
+
+    Ok(rows
+        .into_iter()
+        .map(|r| UpcomingRenewal {
+            id:                  r.id,
+            matter_id:           r.matter_id,
+            asset_type:          r.asset_type,
+            title:               r.title,
+            registration_number: r.registration_number,
+            expiry_date:         r.expiry_date.unwrap_or_default(),
+            status:              r.status,
+            jurisdiction:        r.jurisdiction,
+            matter_title:        r.matter_title,
+            client_name:         r.client_name,
+        })
+        .collect())
+}
 
 /// All IP assets for a matter, newest filing first.
 #[tauri::command]

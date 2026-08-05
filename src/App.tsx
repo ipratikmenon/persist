@@ -6,6 +6,7 @@ import MatterDetail from '@/pages/Matters/MatterDetail';
 import DocketList from '@/pages/Dockets/DocketList';
 import IPAssetRecord from '@/pages/Dockets/IPAssetRecord';
 import PipelineBoard from '@/pages/Dockets/PipelineBoard';
+import RenewalDashboard from '@/pages/Dockets/RenewalDashboard';
 import DocumentList from '@/pages/Documents/DocumentList';
 import BillingHome from '@/pages/Billing/BillingHome';
 import LoginScreen from '@/pages/Auth/LoginScreen';
@@ -157,6 +158,7 @@ export default function App() {
                 {/* Phase 1 M2 — Docketing */}
                 <Route path="/dockets"             element={<DocketList />} />
                 <Route path="/dockets/pipeline"    element={<PipelineBoard />} />
+                <Route path="/dockets/renewals"    element={<RenewalDashboard />} />
                 <Route path="/dockets/:matterId"   element={<IPAssetRecord />} />
 
                 {/* Phase 1 M3 — Document Vault */}

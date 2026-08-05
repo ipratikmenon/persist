@@ -18,6 +18,7 @@ Update this file after every migration. Never let it drift from the actual schem
 | `0007_sessions.sql` | Persistent sessions — 8-hour expiry, survives restart (B01) | Phase 1 Auth |
 | `0008_ip_assets.sql` | IP asset records + `deadlines.ip_asset_id` linkage (B02) | Phase 1 M2 ext |
 | `0009_portal_sync.sql` | Client portal sync — `deadlines.is_client_visible`, portal_users, sync_outbox, client_uploads, sync_state | Phase 2 M5 |
+| `0010_cascade.sql` | Cascade templates + escalations; `deadlines` rebuilt to admit status `Missed` and carry cascade linkage | Phase 1 M2 ext |
 
 ---
 
@@ -122,10 +123,12 @@ Every docketing event / statutory deadline for a matter.
 | `matter_id` | TEXT NOT NULL | FK → `matters(id)` ON DELETE CASCADE |
 | `ip_asset_id` | TEXT | FK → `ip_assets(id)` — NULL for matter-level deadlines (added in 0008) |
 | `is_client_visible` | INTEGER NOT NULL DEFAULT 0 | 1 = appears in the client portal (added in 0009). Keel sets 1 at creation for `event_type = 'Statutory'`; Procedural/Custom stay private. Attorney can toggle either way |
+| `cascade_root_id` | TEXT | Anchor deadline that spawned this one (added in 0010). Plain TEXT, not a self-FK — see the migration for why |
+| `cascade_template_id` | TEXT | FK → `cascade_templates(id)` — which template generated this deadline |
 | `docketing_event` | TEXT NOT NULL | Event name (e.g. "Examination Report Response") |
 | `event_type` | TEXT NOT NULL DEFAULT 'Custom' | `Statutory \| Procedural \| Custom` |
 | `due_date` | DATE NOT NULL | |
-| `status` | TEXT NOT NULL DEFAULT 'Pending' | `Pending \| Complete \| Waived` |
+| `status` | TEXT NOT NULL DEFAULT 'Pending' | `Pending \| Complete \| Waived \| Missed` — `Missed` added in 0010, set only by abandonment_watcher, never by a user |
 | `urgency` | TEXT NOT NULL DEFAULT 'Normal' | `Overdue \| Critical \| Warning \| Normal` — recalculated every 15 min by deadline_watcher |
 | `notes` | TEXT | |
 | `completed_at` | DATETIME | Set when status → Complete |
@@ -142,7 +145,7 @@ Every docketing event / statutory deadline for a matter.
 | `Warning` | `4 ≤ days_until_due ≤ 7` |
 | `Normal` | `days_until_due > 7` or status ≠ Pending |
 
-**Indexes:** `idx_deadlines_matter`, `idx_deadlines_due`, `idx_deadlines_status`, `idx_deadlines_urgency`, `idx_deadlines_ip_asset`
+**Indexes:** `idx_deadlines_matter`, `idx_deadlines_due`, `idx_deadlines_status`, `idx_deadlines_urgency`, `idx_deadlines_ip_asset`, `idx_deadlines_client_visible`, `idx_deadlines_cascade_root`
 
 ### `documents`
 
@@ -456,6 +459,57 @@ Single-row bookkeeping (`id = 1`, enforced by CHECK).
 | `last_pushed_at` / `last_pulled_at` | DATETIME | |
 | `last_error` | TEXT | |
 | `updated_at` | DATETIME NOT NULL DEFAULT (datetime('now')) | |
+
+### `cascade_templates`
+
+Statutory deadline chains as **data, not code**. When a rule or period changes,
+that is a DB update and a new `last_verified` date — not a code change and a
+release. A wrong period here abandons a client's application.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | TEXT PK | e.g. `tpl-tm-application-in` |
+| `anchor_event_type` | TEXT NOT NULL | The event that starts the chain, e.g. `TMApplication`, `PatentFER`. Registry-triggered events get their own template rather than being guessed from a filing date |
+| `ip_type` | TEXT NOT NULL | `Trademark \| Patent \| Design \| Copyright \| PlantVariety` |
+| `jurisdiction` | TEXT NOT NULL DEFAULT 'India' | |
+| `template_json` | TEXT NOT NULL | JSON array of rules — see `services/cascade_engine.rs::DeadlineRule` |
+| `last_verified` | DATE NOT NULL | When the periods were last confirmed against the Act. Surfaced in the UI so staleness is visible |
+| `notes` | TEXT | Statutory citation |
+| `created_at` / `updated_at` | DATETIME NOT NULL DEFAULT (datetime('now')) | |
+
+**Index:** `idx_cascade_templates_anchor` (UNIQUE on anchor_event_type, ip_type, jurisdiction)
+
+**Rule shape:** `event_name`, `event_type`, `offset` + `offset_unit`
+(days/months/years), `internal_buffer_days` (generates a paired Procedural
+deadline that many days earlier), `client_visible`, `repeat_years` (annual series
+for patent annuities).
+
+**Seeded (Phase 1, India):** `TMApplication`, `TMExaminationReport`,
+`TMAdvertised`, `PatentApplication`, `PatentFER`, `DesignApplication`,
+`CopyrightRegistration`.
+
+### `deadline_escalations`
+
+Audit trail of abandonment warnings. A missed statutory IP deadline is usually
+irreversible, so which warnings were raised — and when — must be provable.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | TEXT PK | UUID |
+| `deadline_id` | TEXT NOT NULL | FK → `deadlines(id)` ON DELETE CASCADE |
+| `escalation_level` | INTEGER NOT NULL CHECK (1–4) | 1 = 14 days, 2 = 7 days, 3 = 3 days, 4 = missed |
+| `triggered_at` | DATETIME NOT NULL DEFAULT (datetime('now')) | |
+| `notified_user_ids` | TEXT NOT NULL DEFAULT '[]' | JSON array |
+| `notification_channels` | TEXT NOT NULL DEFAULT '["in_app"]' | JSON array; WhatsApp added in Phase 3 |
+| `resolution_action` | TEXT | What the attorney did |
+| `resolved_at` / `resolved_by` | DATETIME / TEXT | |
+
+**Indexes:** `idx_escalations_unique` (UNIQUE on deadline_id, escalation_level),
+`idx_escalations_open`
+
+The UNIQUE index is load-bearing: the watcher runs every 30 minutes and must not
+raise the same warning 48 times a day. Levels are cumulative — a deadline first
+seen 5 days out backfills L1 and L2 so the trail is not misleading.
 
 ---
 

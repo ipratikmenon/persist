@@ -146,7 +146,16 @@ pub fn run() {
             // Polls every 15 minutes, recalculates urgency, fires OS notifications.
             let watcher_handle = app.handle().clone();
             tauri::async_runtime::spawn(
-                services::deadline_watcher::start(pool, watcher_handle)
+                services::deadline_watcher::start(pool.clone(), watcher_handle)
+            );
+
+            // Start the abandonment watcher. Polls every 30 minutes and raises
+            // the L1/L2/L3/L4 escalation ladder on statutory deadlines. A missed
+            // statutory IP deadline is usually irreversible, so this must run
+            // whether or not anyone is looking at the docket screen.
+            let abandonment_handle = app.handle().clone();
+            tauri::async_runtime::spawn(
+                services::abandonment_watcher::start(pool, abandonment_handle)
             );
 
             Ok(())
@@ -182,6 +191,13 @@ pub fn run() {
             commands::ip_assets::create_ip_asset,
             commands::ip_assets::update_ip_asset,
             commands::ip_assets::delete_ip_asset,
+            commands::ip_assets::list_upcoming_renewals,
+            // --- cascade + escalations ---
+            commands::cascade::preview_cascade,
+            commands::cascade::generate_cascade,
+            commands::cascade::list_cascade_anchors,
+            commands::cascade::list_escalations,
+            commands::cascade::resolve_escalation,
             // --- documents ---
             commands::documents::list_documents,
             commands::documents::upload_document,

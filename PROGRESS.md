@@ -12,8 +12,8 @@
 
 **Phase:** 2 — Billing & Client Portal
 **Week:** 3
-**Active module:** Phase 2 M5 Client Portal — Step 2 (schema + RLS) COMPLETE. Next: Step 3a (Keel sync engine).
-**Last session completed:** S14 — 2026-08-05 — M5 Step 2: desktop migration 0009, PostgreSQL mirror + RLS, acceptance gate passing. cargo test 88/88, RLS gate 10/10.
+**Active module:** M5 Step 2 (schema + RLS) COMPLETE · Phase 1 M2 cascade + abandonment COMPLETE. Next: M5 Step 3a (Keel sync engine).
+**Last session completed:** S14 — 2026-08-05 — Two sprints: M5 Step 2 (mirror schema + RLS gate) and cascade engine + abandonment watcher. cargo test 113/113, RLS gate 10/10, pnpm build PASS (506kb).
 **Last updated:** 2026-08-05
 
 ---
@@ -22,30 +22,31 @@
 
 > Fill this section at the start of a session. Clear it when done.
 
-**M5 spec written — needs review before implementation starts.**
-`specs/module-05-portal.md` is the contract. Per TASKS.md Step 1: review and
-approve the spec before Step 2. If anything is wrong, fix the spec — not the
-next session.
+**Nothing in progress.** Two sprints landed in S14, both on
+`claude/new-session-dbqe5o` — **nothing pushed to main**, awaiting your review.
 
-Points worth a decision during review:
-  - Statutory deadlines default to client-visible; Procedural/Custom stay private (§6)
+**Sprint A — M5 Step 2 (schema + RLS)**
+  ✅ `0009_portal_sync.sql`, `server/migrations/0001_mirror.sql` + `0002_rls.sql`
+  ✅ RLS acceptance gate passes (10 assertions) — and verified to FAIL when RLS
+     is disabled, so the gate is real rather than decorative
+  ▶ Run it: `server/scripts/test-rls.sh` (needs PostgreSQL)
+
+**Sprint B — Phase 1 M2 cascade + abandonment**
+  ✅ `0010_cascade.sql` — cascade_templates (7 Indian templates seeded),
+     deadline_escalations, `deadlines` rebuilt for status `Missed`
+  ✅ `services/cascade_engine.rs` (14 tests), `services/abandonment_watcher.rs`
+     (10 tests), `commands/cascade.rs`, `RenewalDashboard.tsx`
+
+⚠️ **Still awaiting your review:** the M5 spec (`specs/module-05-portal.md`).
+Step 2 implements it as written — if your review changes §5–§7, the mirror
+schema changes with it. Points worth a decision:
+  - Statutory deadlines default client-visible; Procedural/Custom private (§6)
   - No client↔attorney messaging, no online payment, no multi-client users (§16)
   - Clients never see time entries or work-in-progress (§16)
-  - Sync is off by default until a server URL + client cert are configured (§15.9)
+  - Sync off by default until a server URL + client cert are configured (§15.9)
 
-✅ B07 cleared in S13 — `clean_metadata()` now strips for real and fails closed.
-Chosen ahead of Step 2 because it is independent of the spec review: metadata
-stripping is required for every export path, not just the portal.
-
-⚠️ **Behaviour change to be aware of:** `get_document` no longer strips metadata
-(it returns raw bytes for internal attorney use — a counterparty's tracked
-changes are exactly what an attorney opens the file to read). The new
-`export_document` command is the only client-facing path. DocumentList gained a
-"↓ Client copy" action that reports what was removed.
-
-Next: Step 2 (schema) — `0009_portal_sync.sql` + `server/migrations/` + RLS.
-Gate: `test_rls_blocks_cross_client_read` must pass before any portal endpoint.
-Nothing is pushed to main — awaiting your review.
+Next: M5 Step 3a — `services/sync_engine/projection.rs` (allow-list projections,
+the security-critical piece) + outbox drain + the 15 sync commands.
 
 ---
 
@@ -110,8 +111,8 @@ Nothing is pushed to main — awaiting your review.
 | 1 | `specs/module-02-docketing.md` written | ✅ | S07 — new detailed spec (505 lines) |
 | 2 | Migration: `deadlines` table | ✅ | S04 — `0003_deadlines.sql` |
 | 2 | Migration: `ip_assets` table | ✅ | S11 — `0008_ip_assets.sql` + `deadlines.ip_asset_id` |
-| 2 | Migration: `cascade_templates` table | ❌ | New from spec §2.9 |
-| 2 | Migration: `deadline_escalations` table | ❌ | New from spec §2.11 |
+| 2 | Migration: `cascade_templates` table | ✅ | S14 — `0010_cascade.sql`, 7 Indian templates seeded with statutory citations |
+| 2 | Migration: `deadline_escalations` table | ✅ | S14 — UNIQUE(deadline_id, level) so the 30-min watcher cannot spam |
 | 2 | Migration: `document_intake_events` table | ❌ | New from spec §2.16 |
 | 2 | Migration: `docket_errors` table | ❌ | New from spec §2.17 |
 | 2 | Migration: `ip_fee_schedule` table | ❌ | New from spec §2.18 |
@@ -121,8 +122,8 @@ Nothing is pushed to main — awaiting your review.
 | 3 | `db/queries/deadlines.rs` — urgency_for(), CRUD | ✅ | S04 |
 | 3 | `commands/deadlines.rs` — 7 commands + statutory templates (TM, Patent, Design, Copyright) | ✅ | S04 |
 | 3 | `commands/ip_assets.rs` — CRUD for IP assets | ✅ | S11 — 5 commands + `db/queries/ip_assets.rs` (8 tests) |
-| 3 | `services/cascade_engine.rs` — chain generator from templates | ❌ | New from spec §2.9 |
-| 3 | `services/abandonment_watcher.rs` — 14d/7d/3d/missed alerts | ❌ | New from spec §2.11 |
+| 3 | `services/cascade_engine.rs` — chain generator from templates | ✅ | S14 — 14 tests; month/year arithmetic clamps to month end |
+| 3 | `services/abandonment_watcher.rs` — 14d/7d/3d/missed alerts | ✅ | S14 — 30-min poll, cumulative levels, sets status `Missed`; 10 tests |
 | 3 | `services/deadline_watcher.rs` — 15-min poll + OS notifications | ✅ | S04 |
 | 3 | Dual verification enforcement | ❌ | New from spec §2.12 |
 | 3 | `services/intake_sla_tracker.rs` | ❌ | New from spec §2.16 |
@@ -133,7 +134,7 @@ Nothing is pushed to main — awaiting your review.
 | 4 | `pages/Dockets/IPAssetRecord.tsx` (timeline + add deadline drawer + templates) | ✅ | S04 |
 | 4 | `pages/Dockets/PipelineBoard.tsx` (Kanban by status) | ✅ | S04 |
 | 4 | `components/dockets/UrgencyBadge.tsx` | ✅ | S04 |
-| 4 | `pages/Dockets/RenewalDashboard.tsx` | ❌ | New from spec |
+| 4 | `pages/Dockets/RenewalDashboard.tsx` | ✅ | S14 — firm-wide renewals + open escalations with inline resolve |
 | 4 | `components/dockets/CascadePreview.tsx` | ❌ | New from spec |
 | 4 | `components/dockets/VerificationBadge.tsx` | ❌ | New from spec |
 | 4 | `components/dockets/TriggerDocumentChip.tsx` | ❌ | New from spec |
@@ -398,6 +399,13 @@ bets: M35, M36, M38.
 | Aug 2026 | Tracked changes are *accepted*, not rejected, when cleaning | Insertions become plain text, deletions vanish — which is what "send the clean copy" means to an attorney |
 | Aug 2026 | Format detected by magic bytes, never by mime string or extension | A caller-supplied mime type is not evidence; a .docx renamed to .pdf must still be cleaned as a .docx |
 | Aug 2026 | Export reports what it removed | "3 tracked change(s), Reviewer comments, GPS location data" is shown to the attorney. Silent stripping gives no chance to notice that a file should not have been sent at all |
+| Aug 2026 | Portal DB roles separated: portal_reader (SELECT on mirror) vs portal_writer (INSERT on 2 inbound tables) vs sync_writer | The portal is structurally incapable of mutating the mirror. portal_writer has NO grant on otp_challenges, so a leaked portal credential cannot reach OTP hashes |
+| Aug 2026 | RLS unset context matches nothing, not everything | `current_setting(...,true)` is NULL when unset and every policy uses `=`, so a request that forgets to set client context returns zero rows. Asserted by Test 3 |
+| Aug 2026 | Cascade templates are DATA, not Rust | When a statutory period changes, that is a DB update and a new last_verified date — not a code change and a release |
+| Aug 2026 | Registry-triggered events are their own cascade anchors | The firm cannot know at filing when an examination report will issue. TMApplication generates only what is computable from the filing date; TMExaminationReport runs later with the report's real date. Nothing is dated from an event that has not happened |
+| Aug 2026 | Cascade generation is preview-then-commit | An attorney sees the whole chain, with the template's last_verified date, before any deadline exists. Silently creating 19 annuities on a wrong anchor date would be a mess to unpick |
+| Aug 2026 | Escalation levels are cumulative and idempotent | A deadline first seen 5 days out backfills L1 and L2 so the audit trail is not misleading; the UNIQUE index (not app logic) stops the 30-minute watcher re-raising |
+| Aug 2026 | Only Statutory deadlines escalate | Escalating the firm's own internal working dates would train attorneys to ignore the alerts that actually matter |
 
 ---
 
@@ -434,6 +442,7 @@ HETZNER_SYNC_URL=       # Sync server URL (Phase 2 M5)
 | Apr 17 2026 | S07: Phase 2 M4 Billing — spec written, migration 0006_billing.sql (5 tables), queries/billing.rs (5 tests), commands/billing.rs (13 cmds), lib.rs billing commands registered, tauri.ts billing wrappers, BillingHome/TimeTracker/InvoiceList/FirmSettingsPanel. Also: new spec files placed in specs/ (module-02-docketing, auth-rbac, hpas-integration, module-03-documents updated), PROGRESS.md reconciled | specs/*.md, 0006_billing.sql, queries/billing.rs, commands/billing.rs, pages/Billing/*.tsx | cargo test: 30/30, pnpm build: PASS (467 modules, 457kb) |
 | Apr 19 2026 | S08: Phase 2 M4 Billing UI complete — InvoiceDetail.tsx (back/actions/line items/GST panel/payment modal), InvoiceComposer.tsx (client→matter→entries→fixed-fee→GST type→live totals→create), InvoiceList wired (row click→detail, New Invoice→composer), latex.rs real impl (finds pdflatex, tempdir compile, 3 tests), invoice.tex GST-compliant template, client lookup added to generate_invoice_pdf, tempfile moved to [dependencies] | pages/Billing/InvoiceDetail.tsx, InvoiceComposer.tsx, InvoiceList.tsx, services/latex.rs, storage/templates/invoice.tex, commands/billing.rs, Cargo.toml | cargo test: 33/33, pnpm build: PASS (469 modules, 482kb) |
 | Jul 19 2026 | S09: Expansion roadmap (planning only, no code) — researched adalat.ai + visiocyber.ai; wrote specs/expansion-roadmap.md defining Track A Courtroom Intelligence (M25 transcription, M26 hearings/cause lists, M27 doc digitization, M28 research/summarization, M29 WhatsApp chatbot) and Track B Startup Legal SaaS (M30 Startup Legal OS, M31 DP Audit Engine → Phase 2.5, M32 Compliance & AI Governance, M33 Assessments); added Phases 2.5/8/9 to TASKS.md; 4 architecture decisions logged | specs/expansion-roadmap.md (new), TASKS.md, PROGRESS.md, SESSION-LOG/2026-07-19-S09-expansion-roadmap.md | No code changed — tests unaffected (33/33 as of S08) |
+| Aug 5 2026 | S14: Two sprints. **M5 Step 2:** `0009_portal_sync.sql` (is_client_visible + statutory backfill, portal_users, sync_outbox, client_uploads, sync_state), `server/migrations/0001_mirror.sql` (mirror.* 9 tables + inbound.* 3), `0002_rls.sql` (3 roles, FORCE RLS, WITH CHECK), `server/tests/rls_test.sql` + `scripts/test-rls.sh` (10 assertions, negative-control verified), `server/SCHEMA.md`. **Cascade + abandonment:** `0010_cascade.sql` (cascade_templates w/ 7 seeded Indian templates, deadline_escalations, deadlines rebuilt for status Missed), `services/cascade_engine.rs` (14 tests), `services/abandonment_watcher.rs` (10 tests), `commands/cascade.rs` (5 cmds), `list_upcoming_renewals`, `RenewalDashboard.tsx` | 0009/0010 migrations, server/{migrations,tests,scripts,SCHEMA.md}, services/{cascade_engine,abandonment_watcher}.rs, commands/{cascade,ip_assets}.rs, db/{mod.rs,queries/ip_assets.rs}, lib.rs, SCHEMA.md, src/pages/Dockets/RenewalDashboard.tsx, src/lib/{ipc-types,tauri}.ts, src/App.tsx | cargo test: 113/113 (was 86), RLS gate: 10/10, pnpm build: PASS (474 modules, 506kb) |
 | Aug 5 2026 | S13: B07 resolved — `storage/metadata.rs` (real stripping: PDF info dict + XMP via lopdf; OOXML core/app/custom props, comments, tracked changes incl. nested, dangling-rel cleanup via zip + quick-xml; JPEG APP/COM segments incl. GPS detection; PNG text chunks; plain text). Fails closed on unsupported types. Split internal read (`get_document`, raw) from client export (`export_document`, cleaned + report). Deck: "↓ Client copy" action reporting what was removed. Deps added: zip, quick-xml, lopdf. KEEL-RULES.md and M5 spec §9.1/§15/§18 updated | src-tauri/src/storage/{metadata.rs (new),vault.rs,mod.rs}, commands/documents.rs, lib.rs, Cargo.toml, KEEL-RULES.md, specs/module-05-portal.md, src/lib/{ipc-types,tauri}.ts, src/pages/Documents/DocumentList.tsx | cargo test: 86/86 (was 67), pnpm build: PASS (472 modules, 497kb) |
 | Aug 5 2026 | S12: Phase 2 M5 Step 1 — `specs/module-05-portal.md` (spec only, no code). Defines the three surfaces, allow-list sync projection + outbox/inbound queue, desktop migration 0009 additions, full PostgreSQL `mirror.*`/`inbound.*` schema, RLS policies + role separation, outbound/inbound document pipelines, OTP+JWT auth, 15 Keel commands, 8 server routes, 14 portal API routes, 4 frontend tabs, 14 constraints, 8 resolved open questions, 5 implementation sub-steps with gates. Raised B07 (clean_metadata stub blocks doc sharing) | specs/module-05-portal.md (new), PROGRESS.md, SESSION-LOG/2026-08-05-S12-portal-spec.md | No code changed — spec session (67/67 and build unchanged from S11) |
 | Aug 5 2026 | S11: B01 + B02 closed. **B01:** `0007_sessions.sql`, `db/queries/sessions.rs` (9 tests), `services/keychain.rs` (5 tests, keyring + 0600 file fallback), `commands/auth.rs` rewritten (session rows, keychain token, 5-attempt/60s lockout, `refresh_session`), AppState gains keychain + login_attempts, expired sessions cleared at startup, `src/lib/dates.ts` (UTC parsing), `SessionKeepAlive` in App.tsx. **B02:** `0008_ip_assets.sql` (+ `deadlines.ip_asset_id`), `db/queries/ip_assets.rs` (8 tests), `commands/ip_assets.rs` (5 commands, 4 validation tests), deadline layer carries `ipAssetId`, `IpAssetStatusBadge.tsx` + `IpAssetDrawer.tsx`, asset panel with per-asset deadline filtering. Plus `db/mod.rs` migration tests (4) and SCHEMA.md | 0007/0008 migrations, queries/{sessions,ip_assets}.rs, services/keychain.rs, commands/{auth,ip_assets,deadlines}.rs, db/mod.rs, lib.rs, SCHEMA.md, App.tsx, lib/{dates,tauri,ipc-types}.ts, components/dockets/{IpAssetStatusBadge,IpAssetDrawer}.tsx, pages/Dockets/IPAssetRecord.tsx | cargo test: 67/67, pnpm build: PASS (472 modules, 497kb) |

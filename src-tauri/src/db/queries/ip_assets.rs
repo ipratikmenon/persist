@@ -14,6 +14,21 @@ const SELECT_COLUMNS: &str = "id, matter_id, asset_type, title, application_numb
      expiry_date, applicant_entity_type, jurisdiction, classes, status, notes,
      created_at, updated_at";
 
+/// Denormalised renewal view for the firm-wide dashboard.
+#[derive(Debug, sqlx::FromRow)]
+pub struct RenewalRow {
+    pub id:                  String,
+    pub matter_id:           String,
+    pub asset_type:          String,
+    pub title:               String,
+    pub registration_number: Option<String>,
+    pub expiry_date:         Option<String>,
+    pub status:              String,
+    pub jurisdiction:        String,
+    pub matter_title:        String,
+    pub client_name:         String,
+}
+
 #[derive(Debug, sqlx::FromRow)]
 pub struct IpAssetRow {
     pub id:                    String,
@@ -197,6 +212,34 @@ pub async fn delete(pool: &SqlitePool, id: &str) -> anyhow::Result<()> {
         .execute(pool)
         .await?;
     Ok(())
+}
+
+/// Assets with a renewal date inside `within_days`, plus already-lapsed ones.
+/// Drives the Renewal Dashboard, which is firm-wide rather than per-matter —
+/// a renewal missed because nobody opened that matter is still a lost right.
+pub async fn list_upcoming_renewals(
+    pool: &SqlitePool,
+    within_days: i64,
+) -> anyhow::Result<Vec<RenewalRow>> {
+    let horizon = format!("+{within_days} days");
+
+    let rows = sqlx::query_as::<_, RenewalRow>(
+        "SELECT a.id, a.matter_id, a.asset_type, a.title, a.registration_number,
+                a.expiry_date, a.status, a.jurisdiction,
+                m.title AS matter_title, c.name AS client_name
+         FROM ip_assets a
+         JOIN matters m ON m.id = a.matter_id
+         JOIN clients c ON c.id = m.client_id
+         WHERE a.expiry_date IS NOT NULL
+           AND a.expiry_date <= date('now', ?)
+           AND a.status NOT IN ('Abandoned','Cancelled')
+         ORDER BY a.expiry_date ASC",
+    )
+    .bind(&horizon)
+    .fetch_all(pool)
+    .await?;
+
+    Ok(rows)
 }
 
 /// How many deadlines point at this asset — guards deletion.
