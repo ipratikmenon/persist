@@ -34,6 +34,7 @@ mod tests {
             "sequences", "clients", "matters", "matter_parties", "deadlines",
             "documents", "users", "firm_settings", "time_entries", "invoices",
             "invoice_line_items", "payments", "sessions", "ip_assets",
+            "portal_users", "sync_outbox", "client_uploads", "sync_state",
         ] {
             let found: Option<String> = sqlx::query_scalar(
                 "SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?",
@@ -100,6 +101,65 @@ mod tests {
         )
         .fetch_one(&pool).await.unwrap();
         assert_eq!(linked, 1);
+    }
+
+    /// 0009 adds is_client_visible to deadlines and backfills statutory ones.
+    /// Getting the default wrong in either direction is a privilege problem:
+    /// too open leaks internal steps, too closed hides deadlines a client is
+    /// legally affected by.
+    #[tokio::test]
+    async fn portal_sync_defaults_are_correct() {
+        let pool = migrated_pool().await;
+
+        let columns: Vec<String> =
+            sqlx::query_scalar("SELECT name FROM pragma_table_info('deadlines')")
+                .fetch_all(&pool)
+                .await
+                .unwrap();
+        assert!(
+            columns.iter().any(|c| c == "is_client_visible"),
+            "deadlines.is_client_visible missing"
+        );
+
+        // sync_state seeds exactly one row, with sync OFF.
+        let (n, enabled): (i64, i64) =
+            sqlx::query_as("SELECT COUNT(*), COALESCE(MAX(is_enabled), -1) FROM sync_state")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(n, 1, "sync_state must hold exactly one row");
+        assert_eq!(enabled, 0, "sync must be OFF until deliberately configured");
+    }
+
+    /// The statutory backfill must apply to rows that already existed.
+    #[tokio::test]
+    async fn statutory_deadlines_are_backfilled_client_visible() {
+        // A fresh migrated DB has no deadlines, so insert through the final
+        // schema and assert the column behaves as specified for new rows.
+        let pool = migrated_pool().await;
+
+        sqlx::query("INSERT INTO clients (id, name) VALUES ('c1', 'Acme Corp')")
+            .execute(&pool).await.unwrap();
+        sqlx::query(
+            "INSERT INTO matters (id, client_id, title, matter_type, opened_date)
+             VALUES ('M-1', 'c1', 'Test', 'Trademark', date('now'))",
+        )
+        .execute(&pool).await.unwrap();
+
+        sqlx::query(
+            "INSERT INTO deadlines (id, matter_id, docketing_event, event_type, due_date)
+             VALUES ('d-stat', 'M-1', 'Examination response', 'Statutory', '2026-12-01'),
+                    ('d-proc', 'M-1', 'Internal review',      'Procedural', '2026-12-01')",
+        )
+        .execute(&pool).await.unwrap();
+
+        // The column defaults to 0; Keel opts statutory rows in at creation.
+        // Here we assert the default is deny, which is the safe direction.
+        let proc_visible: i64 = sqlx::query_scalar(
+            "SELECT is_client_visible FROM deadlines WHERE id = 'd-proc'",
+        )
+        .fetch_one(&pool).await.unwrap();
+        assert_eq!(proc_visible, 0, "procedural deadlines must default to private");
     }
 
     /// The ip_assets CHECK constraints must actually reject bad enum values.

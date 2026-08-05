@@ -12,8 +12,8 @@
 
 **Phase:** 2 — Billing & Client Portal
 **Week:** 3
-**Active module:** Phase 2 M5 Client Portal — Step 1 (spec) complete and awaiting your review. B07 cleared ahead of Step 3a.
-**Last session completed:** S13 — 2026-08-05 — B07 resolved: real metadata stripping (`storage/metadata.rs`), internal-read vs client-export split. cargo test 86/86, pnpm build PASS (472 modules, 497kb).
+**Active module:** Phase 2 M5 Client Portal — Step 2 (schema + RLS) COMPLETE. Next: Step 3a (Keel sync engine).
+**Last session completed:** S14 — 2026-08-05 — M5 Step 2: desktop migration 0009, PostgreSQL mirror + RLS, acceptance gate passing. cargo test 88/88, RLS gate 10/10.
 **Last updated:** 2026-08-05
 
 ---
@@ -219,9 +219,10 @@ Nothing is pushed to main — awaiting your review.
 | Step | Module | Status | Notes |
 |---|---|---|---|
 | 1 | `specs/module-05-portal.md` written | ✅ | S12 — sync contract, mirror schema, RLS, doc pipeline, OTP/JWT |
-| 2 | Desktop migration `0009_portal_sync.sql` | ❌ | deadlines.is_client_visible, portal_users, sync_outbox, client_uploads, sync_state |
-| 2 | PostgreSQL mirror schema (`server/migrations/`) | ❌ | `mirror.*` + `inbound.*` |
-| 2 | RLS policies + portal_reader/portal_writer roles | ❌ | **Gate:** test_rls_blocks_cross_client_read |
+| 2 | Desktop migration `0009_portal_sync.sql` | ✅ | S14 — deadlines.is_client_visible (+statutory backfill), portal_users, sync_outbox, client_uploads, sync_state |
+| 2 | PostgreSQL mirror schema (`server/migrations/`) | ✅ | S14 — `0001_mirror.sql`: mirror.* (9 tables) + inbound.* (3 tables) |
+| 2 | RLS policies + portal_reader/portal_writer roles | ✅ | S14 — `0002_rls.sql`: 3 roles, FORCE RLS, WITH CHECK on inbound. **Gate passes** (10 assertions, verified to fail when RLS disabled) |
+| 2 | `server/SCHEMA.md` written | ✅ | S14 |
 | 3a | `services/sync_engine/projection.rs` — allow-list projections | ❌ | Security-relevant; tests must prove denied fields never serialise |
 | 3a | `services/sync_engine/mod.rs` — outbox drain, push/pull, backoff | ❌ | |
 | 3a | `commands/sync.rs` — 15 commands | ❌ | Replaces the stub |

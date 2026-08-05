@@ -17,6 +17,7 @@ Update this file after every migration. Never let it drift from the actual schem
 | `0006_billing.sql` | Time tracking & billing — firm_settings, time_entries, invoices, invoice_line_items, payments | Phase 2 M4 |
 | `0007_sessions.sql` | Persistent sessions — 8-hour expiry, survives restart (B01) | Phase 1 Auth |
 | `0008_ip_assets.sql` | IP asset records + `deadlines.ip_asset_id` linkage (B02) | Phase 1 M2 ext |
+| `0009_portal_sync.sql` | Client portal sync — `deadlines.is_client_visible`, portal_users, sync_outbox, client_uploads, sync_state | Phase 2 M5 |
 
 ---
 
@@ -120,6 +121,7 @@ Every docketing event / statutory deadline for a matter.
 | `id` | TEXT PK | UUID |
 | `matter_id` | TEXT NOT NULL | FK → `matters(id)` ON DELETE CASCADE |
 | `ip_asset_id` | TEXT | FK → `ip_assets(id)` — NULL for matter-level deadlines (added in 0008) |
+| `is_client_visible` | INTEGER NOT NULL DEFAULT 0 | 1 = appears in the client portal (added in 0009). Keel sets 1 at creation for `event_type = 'Statutory'`; Procedural/Custom stay private. Attorney can toggle either way |
 | `docketing_event` | TEXT NOT NULL | Event name (e.g. "Examination Report Response") |
 | `event_type` | TEXT NOT NULL DEFAULT 'Custom' | `Statutory \| Procedural \| Custom` |
 | `due_date` | DATE NOT NULL | |
@@ -382,6 +384,78 @@ the data it protects.
 A session is valid only while `expires_at > datetime('now')` **and** its user is
 still `is_active = 1`. Expired rows are cleared at startup. Logging in deletes
 the user's prior sessions, so one device holds one live token.
+
+### `portal_users`
+
+Client-portal identities, managed from the desktop and projected to the
+PostgreSQL mirror. A portal user is a person, not a company.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | TEXT PK | UUID |
+| `client_id` | TEXT NOT NULL | FK → `clients(id)` ON DELETE CASCADE |
+| `full_name` | TEXT NOT NULL | |
+| `email` | TEXT NOT NULL | OTP destination. **Unique across the firm** |
+| `phone` | TEXT | OTP destination (SMS), optional |
+| `status` | TEXT NOT NULL DEFAULT 'Invited' | `Invited \| Active \| Suspended \| Revoked` |
+| `invited_by` | TEXT NOT NULL | FK → `users(id)` |
+| `invited_at` | DATETIME NOT NULL DEFAULT (datetime('now')) | |
+| `last_login_at` | DATETIME | Reported back by inbound sync |
+| `created_at` / `updated_at` | DATETIME NOT NULL DEFAULT (datetime('now')) | |
+
+**Indexes:** `idx_portal_users_email` (UNIQUE), `idx_portal_users_client`
+
+One email → one client, enforced on both sides, so an address can never resolve
+to two clients.
+
+### `sync_outbox`
+
+Pending outbound changes. Drained in `created_at` order; cleared on server ack.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | TEXT PK | UUID |
+| `entity_type` | TEXT NOT NULL | `Matter \| Deadline \| IpAsset \| Document \| Invoice \| Payment \| PortalUser \| Notification` |
+| `entity_id` | TEXT NOT NULL | Desktop row id |
+| `op` | TEXT NOT NULL DEFAULT 'Upsert' | `Upsert \| Delete` — Delete is a tombstone so un-sharing actually removes the mirror row |
+| `attempts` | INTEGER NOT NULL DEFAULT 0 | Retry counter |
+| `last_error` | TEXT | |
+| `created_at` / `updated_at` | DATETIME NOT NULL DEFAULT (datetime('now')) | |
+
+**Indexes:** `idx_sync_outbox_created`, `idx_sync_outbox_entity`
+
+### `client_uploads`
+
+Audit mirror of the inbound queue. The server never writes here — the desktop
+pulls pending uploads, validates, vaults the bytes, and records the outcome.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | TEXT PK | Matches the PostgreSQL upload id |
+| `client_id` | TEXT NOT NULL | FK → `clients(id)` ON DELETE CASCADE |
+| `matter_id` | TEXT | FK → `matters(id)` — NULL if unattributed |
+| `document_id` | TEXT | FK → `documents(id)` once vaulted |
+| `filename` | TEXT NOT NULL | Client-supplied, untrusted |
+| `status` | TEXT NOT NULL DEFAULT 'Pending' | `Pending \| Ingested \| Rejected` |
+| `rejection_reason` | TEXT | |
+| `uploaded_at` | DATETIME NOT NULL | Portal-side timestamp |
+| `ingested_at` | DATETIME | |
+| `created_at` / `updated_at` | DATETIME NOT NULL DEFAULT (datetime('now')) | |
+
+**Indexes:** `idx_client_uploads_status`, `idx_client_uploads_client`
+
+### `sync_state`
+
+Single-row bookkeeping (`id = 1`, enforced by CHECK).
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | INTEGER PK CHECK (id = 1) | Always row 1 |
+| `is_enabled` | INTEGER NOT NULL DEFAULT 0 | **Off by default** — a firm with no server configured keeps working unchanged and nothing leaves the machine |
+| `server_url` | TEXT | |
+| `last_pushed_at` / `last_pulled_at` | DATETIME | |
+| `last_error` | TEXT | |
+| `updated_at` | DATETIME NOT NULL DEFAULT (datetime('now')) | |
 
 ---
 
