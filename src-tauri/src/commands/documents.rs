@@ -3,12 +3,16 @@
 // Security invariants (enforced here, not at DB level):
 //   1. Document bytes ALWAYS go through storage::vault (AES-256-GCM).
 //   2. vault_path is NEVER returned to Deck — only DocumentMeta is sent.
-//   3. Every byte sent to a client MUST pass through clean_metadata().
+//   3. Every byte LEAVING THE FIRM must pass through clean_metadata().
+//      get_document() returns raw bytes for internal work (an attorney needs to
+//      see a counterparty's tracked changes); export_document() is the
+//      client-facing path and is the only one that cleans. Never send the
+//      output of get_document() to a client.
 //   4. Uploaded files are read via Tauri FS plugin (Deck passes bytes).
 
 use crate::{
     db::queries::documents::{self as doc_queries, CreateDocumentInput},
-    storage::vault,
+    storage::{metadata, metadata::CleanReport, vault},
     AppState,
 };
 use serde::{Deserialize, Serialize};
@@ -53,6 +57,15 @@ impl From<crate::db::queries::documents::DocumentRow> for DocumentMeta {
             updated_at: r.updated_at,
         }
     }
+}
+
+/// Result of a client-facing export: cleaned bytes plus what was stripped.
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportedDocument {
+    pub filename: String,
+    pub bytes:    Vec<u8>,
+    pub report:   CleanReport,
 }
 
 #[derive(Debug, Deserialize)]
@@ -128,13 +141,42 @@ pub async fn upload_document(
     Ok(DocumentMeta::from(row))
 }
 
-/// Retrieve and decrypt document bytes.
-/// clean_metadata() is called before returning — required for every export path.
+/// Retrieve and decrypt document bytes for INTERNAL use — viewing in Deck, or
+/// saving a working copy to the attorney's own machine.
+///
+/// Deliberately does NOT strip metadata. An attorney reviewing a counterparty's
+/// draft needs to see its tracked changes and comments; stripping them here
+/// would destroy exactly the information they opened the file to read.
+///
+/// These bytes must never be sent to a client. Use `export_document` for that.
 #[tauri::command]
 pub async fn get_document(
     id: String,
     state: tauri::State<'_, AppState>,
 ) -> Result<Vec<u8>, String> {
+    let pool = state.db.lock().await;
+    let row = doc_queries::get_by_id(&pool, &id)
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("document not found: {id}"))?;
+
+    vault::decrypt_from_vault(&state.vault_dir, &state.vault_key, &row.vault_path)
+        .map_err(|e| format!("vault decrypt error: {e}"))
+}
+
+/// Retrieve document bytes for a CLIENT-FACING export, with metadata stripped.
+///
+/// This is the only path bytes may take out of the firm. It fails closed: a file
+/// type the stripper cannot clean returns an error rather than uncleaned bytes.
+/// The returned report names what was removed so the attorney can see it before
+/// sending (e.g. "3 tracked change(s)", "Reviewer comments", "GPS location data").
+///
+/// The sync engine (Module 5 §9.1) uses this same path when sharing to the portal.
+#[tauri::command]
+pub async fn export_document(
+    id: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<ExportedDocument, String> {
     let pool = state.db.lock().await;
     let row = doc_queries::get_by_id(&pool, &id)
         .await
@@ -148,10 +190,24 @@ pub async fn get_document(
     )
     .map_err(|e| format!("vault decrypt error: {e}"))?;
 
-    let cleaned = vault::clean_metadata(&bytes, &row.mime_type)
-        .map_err(|e| format!("metadata strip error: {e}"))?;
+    let cleaned = metadata::clean_with_report(&bytes, &row.mime_type)
+        .map_err(|e| e.to_string())?;
 
-    Ok(cleaned)
+    if cleaned.report.is_empty() {
+        log::info!("Exported document {id} ({}): no metadata found", row.filename);
+    } else {
+        log::info!(
+            "Exported document {id} ({}): removed {:?}",
+            row.filename,
+            cleaned.report.removed
+        );
+    }
+
+    Ok(ExportedDocument {
+        filename: row.filename,
+        bytes:    cleaned.bytes,
+        report:   cleaned.report,
+    })
 }
 
 /// Delete a document: remove DB record and vault file.

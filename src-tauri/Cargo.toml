@@ -43,6 +43,9 @@ env_logger = "0.11"
 thiserror = "2"
 bcrypt = "0.15"
 tempfile = "3"
+zip = { version = "2", default-features = false, features = ["deflate"] }
+quick-xml = "0.37"
+lopdf = { version = "0.34", default-features = false, features = ["nom_parser"] }
 
 [dev-dependencies]
 

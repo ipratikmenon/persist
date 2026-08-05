@@ -104,14 +104,9 @@ pub fn delete_from_vault(vault_dir: &Path, vault_path: &str) -> anyhow::Result<(
     Ok(())
 }
 
-/// Strip metadata from document bytes before any export.
-/// MUST be called on every document returned to clients.
-///
-/// Phase 1: pass-through (no runtime PDF lib dependency).
-/// Phase 2: integrate lopdf / exiftool for deep stripping.
-pub fn clean_metadata(bytes: &[u8], _doc_type: &str) -> anyhow::Result<Vec<u8>> {
-    Ok(bytes.to_vec())
-}
+// NOTE: metadata stripping used to live here as a pass-through stub. It now
+// lives in storage::metadata (B07), strips for real, and FAILS CLOSED on file
+// types it cannot clean. Import it from there, not from this module.
 
 // ---------------------------------------------------------------------------
 // Tests

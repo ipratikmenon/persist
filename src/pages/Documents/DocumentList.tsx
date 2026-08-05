@@ -95,6 +95,7 @@ function DocRow({ doc, onDelete, onMatterClick, matterTitle }: DocRowProps) {
   const shouldReduce = useReducedMotion();
   const [hovered, setHovered] = useState(false);
   const [downloading, setDownloading] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
   const handleDownload = async (e: React.MouseEvent) => {
@@ -107,6 +108,34 @@ function DocRow({ doc, onDelete, onMatterClick, matterTitle }: DocRowProps) {
       await writeFile(destPath, new Uint8Array(bytes));
     } finally {
       setDownloading(false);
+    }
+  };
+
+  /**
+   * Save a copy with metadata stripped, for sending to a client.
+   * Keel refuses file types it cannot clean rather than handing back raw bytes,
+   * so a refusal here means "do not send this file as-is".
+   */
+  const handleExport = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setExporting(true);
+    try {
+      const exported = await keel.documents.exportForClient(doc.id);
+      const destPath = await saveDialog({ defaultPath: `clean-${exported.filename}` });
+      if (!destPath) return;
+      await writeFile(destPath, new Uint8Array(exported.bytes));
+
+      // Tell the attorney what was taken out — silence would hide the point.
+      const { removed } = exported.report;
+      window.alert(
+        removed.length > 0
+          ? `Saved a client copy.\n\nRemoved:\n• ${removed.join('\n• ')}`
+          : 'Saved a client copy. No metadata was found in this file.',
+      );
+    } catch (err: unknown) {
+      window.alert(err instanceof Error ? err.message : String(err));
+    } finally {
+      setExporting(false);
     }
   };
 
@@ -249,6 +278,14 @@ function DocRow({ doc, onDelete, onMatterClick, matterTitle }: DocRowProps) {
                 style={actionBtnStyle(colors.accentPrimary, downloading)}
               >
                 {downloading ? '…' : '↓ Save'}
+              </button>
+              <button
+                onClick={handleExport}
+                disabled={exporting}
+                title="Save a copy with metadata stripped, for sending to a client"
+                style={actionBtnStyle(colors.accentSecondary, exporting)}
+              >
+                {exporting ? '…' : '↓ Client copy'}
               </button>
               <button
                 onClick={handleDelete}

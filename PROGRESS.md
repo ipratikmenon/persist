@@ -12,8 +12,8 @@
 
 **Phase:** 2 — Billing & Client Portal
 **Week:** 3
-**Active module:** Phase 2 M5 Client Portal — Step 1 (spec) COMPLETE, awaiting approval before Step 2 (schema).
-**Last session completed:** S12 — 2026-08-05 — `specs/module-05-portal.md` written (sync contract, mirror schema, RLS, document pipeline, OTP/JWT, 5 implementation sub-steps). Raised B07.
+**Active module:** Phase 2 M5 Client Portal — Step 1 (spec) complete and awaiting your review. B07 cleared ahead of Step 3a.
+**Last session completed:** S13 — 2026-08-05 — B07 resolved: real metadata stripping (`storage/metadata.rs`), internal-read vs client-export split. cargo test 86/86, pnpm build PASS (472 modules, 497kb).
 **Last updated:** 2026-08-05
 
 ---
@@ -33,12 +33,19 @@ Points worth a decision during review:
   - Clients never see time entries or work-in-progress (§16)
   - Sync is off by default until a server URL + client cert are configured (§15.9)
 
-⚠️ B07 raised: `clean_metadata()` is still a pass-through stub. It blocks Step 3a —
-sharing a document to the portal is an export, and shipping without real metadata
-stripping risks disclosing author names and tracked changes to a client.
+✅ B07 cleared in S13 — `clean_metadata()` now strips for real and fails closed.
+Chosen ahead of Step 2 because it is independent of the spec review: metadata
+stripping is required for every export path, not just the portal.
 
-Then: Step 2 (schema) — `0009_portal_sync.sql` + `server/migrations/` + RLS.
+⚠️ **Behaviour change to be aware of:** `get_document` no longer strips metadata
+(it returns raw bytes for internal attorney use — a counterparty's tracked
+changes are exactly what an attorney opens the file to read). The new
+`export_document` command is the only client-facing path. DocumentList gained a
+"↓ Client copy" action that reports what was removed.
+
+Next: Step 2 (schema) — `0009_portal_sync.sql` + `server/migrations/` + RLS.
 Gate: `test_rls_blocks_cross_client_read` must pass before any portal endpoint.
+Nothing is pushed to main — awaiting your review.
 
 ---
 
@@ -218,7 +225,7 @@ Gate: `test_rls_blocks_cross_client_read` must pass before any portal endpoint.
 | 3a | `services/sync_engine/projection.rs` — allow-list projections | ❌ | Security-relevant; tests must prove denied fields never serialise |
 | 3a | `services/sync_engine/mod.rs` — outbox drain, push/pull, backoff | ❌ | |
 | 3a | `commands/sync.rs` — 15 commands | ❌ | Replaces the stub |
-| 3a | `clean_metadata()` made real | ❌ | **B07 — blocks Step 3a** |
+| 3a | `clean_metadata()` made real | ✅ | S13 — B07 resolved; sync engine must use `export_document`, never `get_document` |
 | 3b | Sync server Axum routes (`server/`) | ❌ | mTLS, object storage, WS |
 | 3c | Portal backend: FastAPI, OTP auth, JWT (`portal/backend/`) | ❌ | |
 | 4 | Portal frontend: 4 tabs (Matters/Documents/Invoices/Profile) | ❌ | |
@@ -346,7 +353,7 @@ bets: M35, M36, M38.
 | B04 | SCHEMA.md missing billing tables | Low | Resolved | Billing tables were already documented in SCHEMA.md from S07 |
 | B05 | Keel cannot build on Linux without GTK/WebKit system libs | Low | Resolved | S11 — `libgtk-3-dev libwebkit2gtk-4.1-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev` after `apt-get update`. Needed in any CI image |
 | B06 | Deck parses Keel DATETIME strings as local time, not UTC | Medium | Partial | S11 — `src/lib/dates.ts` (`parseKeelDateTime`) added and used for session expiry. Pre-existing `new Date(...)` call sites elsewhere still unconverted |
-| B07 | `clean_metadata()` is a pass-through stub — sharing a document to the portal is an export | High | Open | S12 — raised by M5 spec §9.1. Blocks Step 3a. Risks disclosing author names, tracked changes, comments to a client |
+| B07 | `clean_metadata()` is a pass-through stub — sharing a document to the portal is an export | High | Resolved | S13 — `storage/metadata.rs`: PDF info/XMP, OOXML props/comments/tracked changes, JPEG EXIF+GPS, PNG chunks. Fails closed on unsupported types. 19 tests |
 
 ---
 
@@ -385,6 +392,11 @@ bets: M35, M36, M38.
 | Aug 2026 | `deadlines.notes` never syncs | It routinely holds strategy ("weak prior art, consider opposing"). Client sees the event and the date |
 | Aug 2026 | Portal DB role has SELECT only on mirror.*, with FORCE ROW LEVEL SECURITY | The portal is structurally incapable of mutating the mirror; RLS applies even to the owner. `SET LOCAL` scopes client context to the transaction so pooled connections cannot leak it |
 | Aug 2026 | Mirror money is NUMERIC(14,2), rounded on projection | Desktop stores REAL; an invoice total shown to a client must never drift by floating-point noise |
+| Aug 2026 | Metadata stripping fails closed | An unsupported file type errors instead of passing bytes through. A caller exporting to a client must not be able to ship uncleaned bytes by accident — the old stub made the documented rule a no-op |
+| Aug 2026 | Internal read and client export are separate commands | `get_document` returns raw bytes (an attorney reviewing a counterparty draft needs its tracked changes); `export_document` is the only client-facing path and always cleans. Conflating them either leaks metadata or destroys the information the attorney opened the file to read |
+| Aug 2026 | Tracked changes are *accepted*, not rejected, when cleaning | Insertions become plain text, deletions vanish — which is what "send the clean copy" means to an attorney |
+| Aug 2026 | Format detected by magic bytes, never by mime string or extension | A caller-supplied mime type is not evidence; a .docx renamed to .pdf must still be cleaned as a .docx |
+| Aug 2026 | Export reports what it removed | "3 tracked change(s), Reviewer comments, GPS location data" is shown to the attorney. Silent stripping gives no chance to notice that a file should not have been sent at all |
 
 ---
 
@@ -421,6 +433,7 @@ HETZNER_SYNC_URL=       # Sync server URL (Phase 2 M5)
 | Apr 17 2026 | S07: Phase 2 M4 Billing — spec written, migration 0006_billing.sql (5 tables), queries/billing.rs (5 tests), commands/billing.rs (13 cmds), lib.rs billing commands registered, tauri.ts billing wrappers, BillingHome/TimeTracker/InvoiceList/FirmSettingsPanel. Also: new spec files placed in specs/ (module-02-docketing, auth-rbac, hpas-integration, module-03-documents updated), PROGRESS.md reconciled | specs/*.md, 0006_billing.sql, queries/billing.rs, commands/billing.rs, pages/Billing/*.tsx | cargo test: 30/30, pnpm build: PASS (467 modules, 457kb) |
 | Apr 19 2026 | S08: Phase 2 M4 Billing UI complete — InvoiceDetail.tsx (back/actions/line items/GST panel/payment modal), InvoiceComposer.tsx (client→matter→entries→fixed-fee→GST type→live totals→create), InvoiceList wired (row click→detail, New Invoice→composer), latex.rs real impl (finds pdflatex, tempdir compile, 3 tests), invoice.tex GST-compliant template, client lookup added to generate_invoice_pdf, tempfile moved to [dependencies] | pages/Billing/InvoiceDetail.tsx, InvoiceComposer.tsx, InvoiceList.tsx, services/latex.rs, storage/templates/invoice.tex, commands/billing.rs, Cargo.toml | cargo test: 33/33, pnpm build: PASS (469 modules, 482kb) |
 | Jul 19 2026 | S09: Expansion roadmap (planning only, no code) — researched adalat.ai + visiocyber.ai; wrote specs/expansion-roadmap.md defining Track A Courtroom Intelligence (M25 transcription, M26 hearings/cause lists, M27 doc digitization, M28 research/summarization, M29 WhatsApp chatbot) and Track B Startup Legal SaaS (M30 Startup Legal OS, M31 DP Audit Engine → Phase 2.5, M32 Compliance & AI Governance, M33 Assessments); added Phases 2.5/8/9 to TASKS.md; 4 architecture decisions logged | specs/expansion-roadmap.md (new), TASKS.md, PROGRESS.md, SESSION-LOG/2026-07-19-S09-expansion-roadmap.md | No code changed — tests unaffected (33/33 as of S08) |
+| Aug 5 2026 | S13: B07 resolved — `storage/metadata.rs` (real stripping: PDF info dict + XMP via lopdf; OOXML core/app/custom props, comments, tracked changes incl. nested, dangling-rel cleanup via zip + quick-xml; JPEG APP/COM segments incl. GPS detection; PNG text chunks; plain text). Fails closed on unsupported types. Split internal read (`get_document`, raw) from client export (`export_document`, cleaned + report). Deck: "↓ Client copy" action reporting what was removed. Deps added: zip, quick-xml, lopdf. KEEL-RULES.md and M5 spec §9.1/§15/§18 updated | src-tauri/src/storage/{metadata.rs (new),vault.rs,mod.rs}, commands/documents.rs, lib.rs, Cargo.toml, KEEL-RULES.md, specs/module-05-portal.md, src/lib/{ipc-types,tauri}.ts, src/pages/Documents/DocumentList.tsx | cargo test: 86/86 (was 67), pnpm build: PASS (472 modules, 497kb) |
 | Aug 5 2026 | S12: Phase 2 M5 Step 1 — `specs/module-05-portal.md` (spec only, no code). Defines the three surfaces, allow-list sync projection + outbox/inbound queue, desktop migration 0009 additions, full PostgreSQL `mirror.*`/`inbound.*` schema, RLS policies + role separation, outbound/inbound document pipelines, OTP+JWT auth, 15 Keel commands, 8 server routes, 14 portal API routes, 4 frontend tabs, 14 constraints, 8 resolved open questions, 5 implementation sub-steps with gates. Raised B07 (clean_metadata stub blocks doc sharing) | specs/module-05-portal.md (new), PROGRESS.md, SESSION-LOG/2026-08-05-S12-portal-spec.md | No code changed — spec session (67/67 and build unchanged from S11) |
 | Aug 5 2026 | S11: B01 + B02 closed. **B01:** `0007_sessions.sql`, `db/queries/sessions.rs` (9 tests), `services/keychain.rs` (5 tests, keyring + 0600 file fallback), `commands/auth.rs` rewritten (session rows, keychain token, 5-attempt/60s lockout, `refresh_session`), AppState gains keychain + login_attempts, expired sessions cleared at startup, `src/lib/dates.ts` (UTC parsing), `SessionKeepAlive` in App.tsx. **B02:** `0008_ip_assets.sql` (+ `deadlines.ip_asset_id`), `db/queries/ip_assets.rs` (8 tests), `commands/ip_assets.rs` (5 commands, 4 validation tests), deadline layer carries `ipAssetId`, `IpAssetStatusBadge.tsx` + `IpAssetDrawer.tsx`, asset panel with per-asset deadline filtering. Plus `db/mod.rs` migration tests (4) and SCHEMA.md | 0007/0008 migrations, queries/{sessions,ip_assets}.rs, services/keychain.rs, commands/{auth,ip_assets,deadlines}.rs, db/mod.rs, lib.rs, SCHEMA.md, App.tsx, lib/{dates,tauri,ipc-types}.ts, components/dockets/{IpAssetStatusBadge,IpAssetDrawer}.tsx, pages/Dockets/IPAssetRecord.tsx | cargo test: 67/67, pnpm build: PASS (472 modules, 497kb) |
 | Jul 19 2026 | S10: Track C candidate bets (planning only) — researched heypocket.com (Pocket AI notes: auto mind maps, Central Theme→Branches→Nodes, tap-to-transcript). Folded transcript/document mind maps into M25/M28; added roadmap §8 + TASKS.md Track C with M34 Matter Mind Map + M35 Limitation Engine⭐ + M36 Order Watcher⭐ + M37 Court-Rules Compiler + M38 Firm Brain⭐ + M39 Bench Analytics + M40 Client-Held Privilege Keys + M41 Vernacular Voice Intake (none sequenced) | specs/expansion-roadmap.md, TASKS.md, PROGRESS.md, SESSION-LOG/2026-07-19-S10-track-c-candidate-bets.md | No code changed — tests unaffected (33/33 as of S08) |

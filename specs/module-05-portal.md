@@ -466,10 +466,12 @@ attorney sets is_shared_with_client = 1
 
 **Step 2 is not optional.** Root CLAUDE.md: *"Metadata stripped before EVERY
 document export — call `clean_metadata()`."* Sharing to the portal is an export.
-`clean_metadata()` is currently a pass-through stub (S05) and **must be made
-real before the first document is shared** — a Word file carrying author names,
-tracked changes, or comments is a privilege incident. This is a blocking
-dependency, recorded in §14.
+
+✅ **Resolved in S13 (B07).** `storage/metadata.rs` now strips for real —
+PDF info/XMP, OOXML properties/comments/tracked changes, JPEG EXIF (incl. GPS),
+PNG text chunks — and **fails closed**, returning an error for any type it cannot
+clean. The sync engine calls `clean_with_report()` and stores the resulting
+report alongside the share event, so "3 tracked change(s) removed" is auditable.
 
 Downloads are served as **5-minute signed URLs** generated per request. The
 `object_key` is never returned to the browser.
@@ -635,7 +637,7 @@ of individual time entries, since `time_entries` never syncs.
 2. **RLS before endpoints.** `test_rls_blocks_cross_client_read` must pass
    before any portal route is written.
 3. **`clean_metadata()` must be real** before the first document is shared.
-   Currently a pass-through stub — blocking dependency (B07).
+   ✅ Done in S13 — strips for real and fails closed (B07 resolved).
 4. **The vault key never leaves the desktop.** Shared documents are decrypted
    locally, cleaned, then re-encrypted for the server under a different key.
 5. **No direct object URLs.** 5-minute signed URLs only, generated per request.
@@ -688,7 +690,7 @@ testable, in dependency order:
 - `services/sync_engine/mod.rs` — outbox drain, push/pull, backoff
 - `db/queries/sync.rs`, `db/queries/portal_users.rs`
 - `commands/sync.rs` — all 15 commands
-- Make `clean_metadata()` real (B07)
+- ~~Make `clean_metadata()` real (B07)~~ ✅ done in S13
 - **Gate:** `cargo test` green; projection tests prove no denied field escapes
 
 **Step 3b — Sync server**
@@ -713,6 +715,10 @@ testable, in dependency order:
 
 ## 18. New Blocker Raised by This Spec
 
-| ID | Issue | Severity |
-|---|---|---|
-| B07 | `clean_metadata()` is a pass-through stub (S05). Sharing a document to the portal is an export; shipping the portal without real metadata stripping risks disclosing author names, tracked changes, and comments to a client | **High** — blocks Step 3a |
+| ID | Issue | Severity | Status |
+|---|---|---|---|
+| B07 | `clean_metadata()` is a pass-through stub (S05). Sharing a document to the portal is an export; shipping the portal without real metadata stripping risks disclosing author names, tracked changes, and comments to a client | **High** — blocked Step 3a | ✅ **Resolved S13** — `storage/metadata.rs`, fails closed, 19 tests |
+
+**Consequence for §9.1:** the sync engine must use `export_document` /
+`clean_with_report`, never `get_document`. The latter now deliberately returns
+raw bytes for internal attorney use.

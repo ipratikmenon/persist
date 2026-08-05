@@ -15,6 +15,7 @@ import type {
   Deadline,
   DeadlineSummary,
   DocumentMeta,
+  ExportedDocument,
   CreateIpAssetInput,
   FirmSettings,
   IpAsset,
@@ -164,7 +165,12 @@ export const keel = {
   documents: {
     list: (matterId: string) => invoke<DocumentMeta[]>('list_documents', { matterId }),
     upload: (input: UploadDocumentInput) => invoke<DocumentMeta>('upload_document', { input }),
+    /** RAW bytes — internal use only (viewing, attorney working copies).
+     *  Never send these to a client; use `exportForClient` for that. */
     get: (id: string) => invoke<number[]>('get_document', { id }), // bytes as number[]
+    /** Metadata-stripped bytes for anything leaving the firm.
+     *  Rejects file types Keel cannot clean rather than returning raw bytes. */
+    exportForClient: (id: string) => invoke<ExportedDocument>('export_document', { id }),
     delete: (id: string) => invoke<void>('delete_document', { id }),
   },
 

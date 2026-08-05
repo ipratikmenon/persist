@@ -124,17 +124,31 @@ Never let these drift out of sync.
 
 ```rust
 // Always go through vault.rs — never raw filesystem
-use crate::storage::vault::{encrypt_to_vault, decrypt_from_vault, clean_metadata};
+use crate::storage::vault::{encrypt_to_vault, decrypt_from_vault};
+use crate::storage::metadata::{clean_metadata, clean_with_report};
 
 // Store a document
-let vault_path = encrypt_to_vault(&vault_key, &document_bytes, &matter_id, &filename)?;
+let vault_path = encrypt_to_vault(&vault_dir, &vault_key, &document_bytes, &matter_id, &doc_id)?;
 
-// Retrieve a document
-let bytes = decrypt_from_vault(&vault_key, &vault_path)?;
+// Retrieve a document — RAW bytes, for internal use only
+let bytes = decrypt_from_vault(&vault_dir, &vault_key, &vault_path)?;
 
-// ALWAYS clean metadata before any export
-let clean_bytes = clean_metadata(&document_bytes, &doc_type)?;
+// ALWAYS clean metadata before anything leaves the firm.
+// Fails closed: returns Err for file types it cannot clean, so uncleaned bytes
+// can never be shipped by accident.
+let clean_bytes = clean_metadata(&document_bytes, &mime_type)?;
+
+// Prefer clean_with_report when a human will see the result — the report names
+// what was stripped ("3 tracked change(s)", "Reviewer comments", "GPS location").
+let cleaned = clean_with_report(&document_bytes, &mime_type)?;
 ```
+
+### Internal read vs client export — do not confuse these
+- `get_document` returns **raw** bytes. An attorney reviewing a counterparty's
+  draft needs its tracked changes; stripping them there destroys the thing they
+  opened the file to read. Never send these bytes to a client.
+- `export_document` is the **only** client-facing path. It strips metadata and
+  fails closed. The sync engine (Module 5 §9.1) uses the same function.
 
 Vault directory: `~/Library/Application Support/Persist/vault/` (macOS)
                  `%APPDATA%\Persist\vault\` (Windows)

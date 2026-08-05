@@ -358,6 +358,22 @@ export interface DocumentMeta {
   // vault_path intentionally absent — never sent from Keel to Deck
 }
 
+/** What a client-facing export stripped out of a document. */
+export interface CleanReport {
+  /** Human-readable list, e.g. "3 tracked change(s)", "GPS location data". */
+  removed: string[];
+  originalBytes: number;
+  cleanedBytes: number;
+}
+
+/** Result of `export_document` — metadata-stripped bytes plus the report. */
+export interface ExportedDocument {
+  filename: string;
+  /** Cleaned bytes, as a number array over the Tauri IPC bridge. */
+  bytes: number[];
+  report: CleanReport;
+}
+
 export interface UploadDocumentInput {
   matterId: string;
   filename: string;

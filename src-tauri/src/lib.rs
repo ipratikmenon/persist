@@ -186,6 +186,7 @@ pub fn run() {
             commands::documents::list_documents,
             commands::documents::upload_document,
             commands::documents::get_document,
+            commands::documents::export_document,
             commands::documents::delete_document,
             // --- AI ---
             commands::ai::ai_request,
