@@ -12,9 +12,9 @@
 
 **Phase:** 2 — Billing & Client Portal
 **Week:** 3
-**Active module:** Phase 2 M4 Billing — COMPLETE. Next: Phase 2 M5 (Client Portal spec) — now the critical-path unblock for the expansion roadmap (see `specs/expansion-roadmap.md`).
-**Last session completed:** S10 — 2026-07-19 — Track C candidate bets added (M34–M41, incl. Matter Mind Map + Limitation Engine/Order Watcher/Firm Brain top bets); Pocket-inspired transcript/document mind maps folded into M25/M28. S09: expansion roadmap (Track A M25–M29, Track B M30–M33).
-**Last updated:** 2026-07-19
+**Active module:** B01 + B02 CLOSED. Next: Phase 2 M5 (Client Portal spec) — the last critical-path unblock for the expansion roadmap (see `specs/expansion-roadmap.md`).
+**Last session completed:** S11 — 2026-08-05 — Two sprints shipped: persistent sessions (B01) and IP assets (B02). cargo test 67/67, pnpm build PASS (472 modules, 497kb).
+**Last updated:** 2026-08-05
 
 ---
 
@@ -22,13 +22,18 @@
 
 > Fill this section at the start of a session. Clear it when done.
 
-Phase 2 M4 Billing is complete. cargo test: 33/33. pnpm build: PASS (469 modules, 482kb).
-S09 added the expansion roadmap (specs/expansion-roadmap.md) — planning only, no code changed.
+Nothing in progress. S11 closed both remaining prerequisites:
+  ✅ B01 — persistent sessions (0007_sessions.sql, keychain.rs, refresh_session, SessionKeepAlive)
+  ✅ B02 — ip_assets (0008_ip_assets.sql, CRUD commands, deadlines.ip_asset_id, asset panel UI)
+
+cargo test: 67/67. pnpm build: PASS (472 modules, 497kb).
+
 Next options (order recommended by roadmap §6):
-  A) Phase 2 M5: write spec + scaffold Client Portal (FastAPI + React) — unblocks Phase 2.5 M31 and all of Track B
-  B) Phase 1 M2 extended features: ip_assets migration, cascade_engine, abandonment_watcher (B02 — prerequisite for Phase 8 M26/M27)
-  C) Auth B01: sessions table + 8-hour persistent sessions
-  D) specs/module-31-dp-audit.md — first Track B spec session (after M5)
+  A) Phase 2 M5: write spec + scaffold Client Portal (FastAPI + React) — the last
+     prerequisite before Phase 2.5 M31 and all of Track B
+  B) Phase 1 M2 extended, remainder: cascade_engine.rs + abandonment_watcher.rs
+     (the ip_assets foundation they build on now exists)
+  C) specs/module-31-dp-audit.md — first Track B spec session (after M5)
 
 ---
 
@@ -92,17 +97,18 @@ Next options (order recommended by roadmap §6):
 |---|---|---|---|
 | 1 | `specs/module-02-docketing.md` written | ✅ | S07 — new detailed spec (505 lines) |
 | 2 | Migration: `deadlines` table | ✅ | S04 — `0003_deadlines.sql` |
-| 2 | Migration: `ip_assets` table | ❌ | New from spec — ip_asset_type, application_number, etc. |
+| 2 | Migration: `ip_assets` table | ✅ | S11 — `0008_ip_assets.sql` + `deadlines.ip_asset_id` |
 | 2 | Migration: `cascade_templates` table | ❌ | New from spec §2.9 |
 | 2 | Migration: `deadline_escalations` table | ❌ | New from spec §2.11 |
 | 2 | Migration: `document_intake_events` table | ❌ | New from spec §2.16 |
 | 2 | Migration: `docket_errors` table | ❌ | New from spec §2.17 |
 | 2 | Migration: `ip_fee_schedule` table | ❌ | New from spec §2.18 |
-| 2 | `deadlines` table — add `ip_asset_id`, `reference_number`, `dual_verified_by` fields | ❌ | New from spec |
-| 2 | `SCHEMA.md` updated | ✅ | S04 (partial — needs ip_assets, cascade) |
+| 2 | `deadlines` table — add `ip_asset_id` | ✅ | S11 — via `0008_ip_assets.sql` |
+| 2 | `deadlines` table — add `reference_number`, `dual_verified_by` fields | ❌ | New from spec |
+| 2 | `SCHEMA.md` updated | ✅ | S11 — ip_assets + sessions documented; cascade still pending |
 | 3 | `db/queries/deadlines.rs` — urgency_for(), CRUD | ✅ | S04 |
 | 3 | `commands/deadlines.rs` — 7 commands + statutory templates (TM, Patent, Design, Copyright) | ✅ | S04 |
-| 3 | `commands/ip_assets.rs` — CRUD for IP assets | ❌ | New from spec |
+| 3 | `commands/ip_assets.rs` — CRUD for IP assets | ✅ | S11 — 5 commands + `db/queries/ip_assets.rs` (8 tests) |
 | 3 | `services/cascade_engine.rs` — chain generator from templates | ❌ | New from spec §2.9 |
 | 3 | `services/abandonment_watcher.rs` — 14d/7d/3d/missed alerts | ❌ | New from spec §2.11 |
 | 3 | `services/deadline_watcher.rs` — 15-min poll + OS notifications | ✅ | S04 |
@@ -151,11 +157,11 @@ Next options (order recommended by roadmap §6):
 |---|---|---|---|
 | 1 | `specs/auth-rbac.md` written | ✅ | S07 — new spec (183 lines): users, sessions, RBAC, first-launch wizard |
 | 2 | Migration: `users` table | ✅ | S06 — `0005_users.sql` |
-| 2 | Migration: `sessions` table | ❌ | In new auth spec — persistent sessions with expiry |
+| 2 | Migration: `sessions` table | ✅ | S11 — `0007_sessions.sql`, 8-hour expiry |
 | 2 | User seeding (persist2026, bcrypt cost 12) | ✅ | S06 — in lib.rs block_on |
 | 3 | `db/queries/users.rs` — 6 functions + 3 tests | ✅ | S06 |
 | 3 | `commands/auth.rs` — login (bcrypt), logout, get_session | ✅ | S06 |
-| 3 | Session persistence (8-hour expiry, `sessions` table) | ❌ | New from spec — currently in-memory only |
+| 3 | Session persistence (8-hour expiry, `sessions` table) | ✅ | S11 — survives restart; keychain-held token; rate limiting + refresh_session |
 | 3 | First-launch wizard (set firm name, GSTIN, bank details) | ❌ | New from spec |
 | 3 | `cargo test` passes | ✅ | S06 — 25/25 |
 | 4 | `src/stores/auth.ts` | ✅ | S06 |
@@ -323,10 +329,12 @@ bets: M35, M36, M38.
 
 | ID | Issue | Severity | Status | Notes |
 |---|---|---|---|---|
-| B01 | `sessions` table not built — auth is in-memory only, restart always logs out | Medium | Open | New auth spec adds 8-hour persistent sessions |
-| B02 | `ip_assets` table missing — deadlines not linked to specific IP assets | Medium | Open | New docketing spec requires this |
+| B01 | `sessions` table not built — auth is in-memory only, restart always logs out | Medium | Resolved | S11 — `0007_sessions.sql`, keychain-held token, 8h expiry + refresh, 5-attempt lockout |
+| B02 | `ip_assets` table missing — deadlines not linked to specific IP assets | Medium | Resolved | S11 — `0008_ip_assets.sql`, 5 CRUD commands, `deadlines.ip_asset_id`, asset panel + filter UI |
 | B03 | LaTeX stub — generate_invoice_pdf command will fail if pdflatex not installed | Medium | Partial | latex.rs now real impl; runtime requires MacTeX or bundled TeX Live sidecar |
 | B04 | SCHEMA.md missing billing tables | Low | Resolved | Billing tables were already documented in SCHEMA.md from S07 |
+| B05 | Keel cannot build on Linux without GTK/WebKit system libs | Low | Resolved | S11 — `libgtk-3-dev libwebkit2gtk-4.1-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev` after `apt-get update`. Needed in any CI image |
+| B06 | Deck parses Keel DATETIME strings as local time, not UTC | Medium | Partial | S11 — `src/lib/dates.ts` (`parseKeelDateTime`) added and used for session expiry. Pre-existing `new Date(...)` call sites elsewhere still unconverted |
 
 ---
 
@@ -352,6 +360,12 @@ bets: M35, M36, M38.
 | Jul 2026 | Server-side AI router in `server/` for portal/chatbot/tenant AI traffic | Same three-tier Haiku→Sonnet→Opus discipline; per-tenant token metering feeds subscription billing; tenants never see model names (roadmap §5.2) |
 | Jul 2026 | HPAS ValidationGate as shared lawyer-in-the-loop primitive for all client/tenant-facing AI output | AI output is a draft until attorney approval — liability + ethics backbone of Track B (roadmap §5.3) |
 | Jul 2026 | M31 DP Audit Engine pulled forward to Phase 2.5 (before Phase 3 AI) | Needs only portal + billing + LaTeX (all built after M5); nearest-term revenue; AI gap-analysis upgrades later |
+| Aug 2026 | Session token = the `sessions` row id (UUID), held in OS keychain | No second secret to manage; validity is a pure DB question (`expires_at > now`), so a restart can restore without re-auth. Reverses the S06 in-memory decision now that B01 is closed |
+| Aug 2026 | Keychain falls back to a 0600 file when no Secret Service exists | Linux dev/CI containers have no keychain daemon. The fallback sits beside persist.db — anyone who can read it can already read every matter, so it is no weaker in context. macOS/Windows always use the real keychain |
+| Aug 2026 | Login deletes the user's prior sessions | One device holds one live token; logging in elsewhere invalidates the old session. Simple and predictable for a 2-attorney firm |
+| Aug 2026 | Session refresh is activity-gated, not unconditional | An idle app expires on schedule instead of renewing itself forever; a working attorney is never logged out mid-task |
+| Aug 2026 | IP asset deletion refuses while deadlines reference it | Silently cascading or orphaning statutory deadlines is the one failure mode a docketing system must not have. Attorney reassigns explicitly |
+| Aug 2026 | Migrations tested by applying the real set to an empty DB | Query-layer tests hand-build their tables, so they cannot catch a bad migration. These caught two fixture drifts on the first run |
 
 ---
 
@@ -388,6 +402,7 @@ HETZNER_SYNC_URL=       # Sync server URL (Phase 2 M5)
 | Apr 17 2026 | S07: Phase 2 M4 Billing — spec written, migration 0006_billing.sql (5 tables), queries/billing.rs (5 tests), commands/billing.rs (13 cmds), lib.rs billing commands registered, tauri.ts billing wrappers, BillingHome/TimeTracker/InvoiceList/FirmSettingsPanel. Also: new spec files placed in specs/ (module-02-docketing, auth-rbac, hpas-integration, module-03-documents updated), PROGRESS.md reconciled | specs/*.md, 0006_billing.sql, queries/billing.rs, commands/billing.rs, pages/Billing/*.tsx | cargo test: 30/30, pnpm build: PASS (467 modules, 457kb) |
 | Apr 19 2026 | S08: Phase 2 M4 Billing UI complete — InvoiceDetail.tsx (back/actions/line items/GST panel/payment modal), InvoiceComposer.tsx (client→matter→entries→fixed-fee→GST type→live totals→create), InvoiceList wired (row click→detail, New Invoice→composer), latex.rs real impl (finds pdflatex, tempdir compile, 3 tests), invoice.tex GST-compliant template, client lookup added to generate_invoice_pdf, tempfile moved to [dependencies] | pages/Billing/InvoiceDetail.tsx, InvoiceComposer.tsx, InvoiceList.tsx, services/latex.rs, storage/templates/invoice.tex, commands/billing.rs, Cargo.toml | cargo test: 33/33, pnpm build: PASS (469 modules, 482kb) |
 | Jul 19 2026 | S09: Expansion roadmap (planning only, no code) — researched adalat.ai + visiocyber.ai; wrote specs/expansion-roadmap.md defining Track A Courtroom Intelligence (M25 transcription, M26 hearings/cause lists, M27 doc digitization, M28 research/summarization, M29 WhatsApp chatbot) and Track B Startup Legal SaaS (M30 Startup Legal OS, M31 DP Audit Engine → Phase 2.5, M32 Compliance & AI Governance, M33 Assessments); added Phases 2.5/8/9 to TASKS.md; 4 architecture decisions logged | specs/expansion-roadmap.md (new), TASKS.md, PROGRESS.md, SESSION-LOG/2026-07-19-S09-expansion-roadmap.md | No code changed — tests unaffected (33/33 as of S08) |
+| Aug 5 2026 | S11: B01 + B02 closed. **B01:** `0007_sessions.sql`, `db/queries/sessions.rs` (9 tests), `services/keychain.rs` (5 tests, keyring + 0600 file fallback), `commands/auth.rs` rewritten (session rows, keychain token, 5-attempt/60s lockout, `refresh_session`), AppState gains keychain + login_attempts, expired sessions cleared at startup, `src/lib/dates.ts` (UTC parsing), `SessionKeepAlive` in App.tsx. **B02:** `0008_ip_assets.sql` (+ `deadlines.ip_asset_id`), `db/queries/ip_assets.rs` (8 tests), `commands/ip_assets.rs` (5 commands, 4 validation tests), deadline layer carries `ipAssetId`, `IpAssetStatusBadge.tsx` + `IpAssetDrawer.tsx`, asset panel with per-asset deadline filtering. Plus `db/mod.rs` migration tests (4) and SCHEMA.md | 0007/0008 migrations, queries/{sessions,ip_assets}.rs, services/keychain.rs, commands/{auth,ip_assets,deadlines}.rs, db/mod.rs, lib.rs, SCHEMA.md, App.tsx, lib/{dates,tauri,ipc-types}.ts, components/dockets/{IpAssetStatusBadge,IpAssetDrawer}.tsx, pages/Dockets/IPAssetRecord.tsx | cargo test: 67/67, pnpm build: PASS (472 modules, 497kb) |
 | Jul 19 2026 | S10: Track C candidate bets (planning only) — researched heypocket.com (Pocket AI notes: auto mind maps, Central Theme→Branches→Nodes, tap-to-transcript). Folded transcript/document mind maps into M25/M28; added roadmap §8 + TASKS.md Track C with M34 Matter Mind Map + M35 Limitation Engine⭐ + M36 Order Watcher⭐ + M37 Court-Rules Compiler + M38 Firm Brain⭐ + M39 Bench Analytics + M40 Client-Held Privilege Keys + M41 Vernacular Voice Intake (none sequenced) | specs/expansion-roadmap.md, TASKS.md, PROGRESS.md, SESSION-LOG/2026-07-19-S10-track-c-candidate-bets.md | No code changed — tests unaffected (33/33 as of S08) |
 
 ---

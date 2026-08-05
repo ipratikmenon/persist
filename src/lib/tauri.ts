@@ -15,7 +15,9 @@ import type {
   Deadline,
   DeadlineSummary,
   DocumentMeta,
+  CreateIpAssetInput,
   FirmSettings,
+  IpAsset,
   Invoice,
   InvoiceLineItem,
   InvoiceSummary,
@@ -34,6 +36,7 @@ import type {
   UpdateClientInput,
   UpdateDeadlineInput,
   UpdateFirmSettingsInput,
+  UpdateIpAssetInput,
   UpdateMatterInput,
   UpdateTimeEntryInput,
   UploadDocumentInput,
@@ -61,6 +64,8 @@ export const keel = {
     login: (input: LoginInput) => invoke<Session>('login', { input }),
     logout: () => invoke<void>('logout'),
     getSession: () => invoke<Session | null>('get_session'),
+    /** Extend the session by another 8 hours. Null if it already lapsed. */
+    refreshSession: () => invoke<Session | null>('refresh_session'),
   },
 
   // ---- Matters ----------------------------------------------------------
@@ -104,6 +109,21 @@ export const keel = {
       invoke<void>('delete_deadline', { id }),
     getTemplates: (matterType: MatterType) =>
       invoke<StatutoryTemplate[]>('get_statutory_templates', { matterType }),
+  },
+
+  // ---- IP Assets --------------------------------------------------------
+  ipAssets: {
+    list: (matterId: string) =>
+      invoke<IpAsset[]>('list_ip_assets', { matterId }),
+    get: (id: string) =>
+      invoke<IpAsset>('get_ip_asset', { id }),
+    create: (input: CreateIpAssetInput) =>
+      invoke<IpAsset>('create_ip_asset', { input }),
+    update: (id: string, input: UpdateIpAssetInput) =>
+      invoke<IpAsset>('update_ip_asset', { id, input }),
+    /** Rejected by Keel while deadlines still reference the asset. */
+    delete: (id: string) =>
+      invoke<void>('delete_ip_asset', { id }),
   },
 
   // ---- Billing ----------------------------------------------------------

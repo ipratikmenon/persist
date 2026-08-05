@@ -15,6 +15,9 @@ use uuid::Uuid;
 pub struct Deadline {
     pub id:              String,
     pub matter_id:       String,
+    /// Set when the deadline belongs to a specific IP asset (B02); None for
+    /// matter-level deadlines such as client meetings or internal reviews.
+    pub ip_asset_id:     Option<String>,
     pub docketing_event: String,
     pub event_type:      String,  // Statutory | Procedural | Custom
     pub due_date:        String,
@@ -64,6 +67,7 @@ pub struct StatutoryTemplate {
 #[serde(rename_all = "camelCase")]
 pub struct CreateDeadlineInput {
     pub matter_id:       String,
+    pub ip_asset_id:     Option<String>,
     pub docketing_event: String,
     pub event_type:      Option<String>,
     pub due_date:        String,

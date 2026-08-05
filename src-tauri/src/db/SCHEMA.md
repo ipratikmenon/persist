@@ -15,6 +15,8 @@ Update this file after every migration. Never let it drift from the actual schem
 | `0004_documents.sql` | Document vault — encrypted document metadata | Phase 1 M3 |
 | `0005_users.sql` | User accounts — authentication, roles, bcrypt password hashes | Phase 1 Auth |
 | `0006_billing.sql` | Time tracking & billing — firm_settings, time_entries, invoices, invoice_line_items, payments | Phase 2 M4 |
+| `0007_sessions.sql` | Persistent sessions — 8-hour expiry, survives restart (B01) | Phase 1 Auth |
+| `0008_ip_assets.sql` | IP asset records + `deadlines.ip_asset_id` linkage (B02) | Phase 1 M2 ext |
 
 ---
 
@@ -117,6 +119,7 @@ Every docketing event / statutory deadline for a matter.
 |---|---|---|
 | `id` | TEXT PK | UUID |
 | `matter_id` | TEXT NOT NULL | FK → `matters(id)` ON DELETE CASCADE |
+| `ip_asset_id` | TEXT | FK → `ip_assets(id)` — NULL for matter-level deadlines (added in 0008) |
 | `docketing_event` | TEXT NOT NULL | Event name (e.g. "Examination Report Response") |
 | `event_type` | TEXT NOT NULL DEFAULT 'Custom' | `Statutory \| Procedural \| Custom` |
 | `due_date` | DATE NOT NULL | |
@@ -137,7 +140,7 @@ Every docketing event / statutory deadline for a matter.
 | `Warning` | `4 ≤ days_until_due ≤ 7` |
 | `Normal` | `days_until_due > 7` or status ≠ Pending |
 
-**Indexes:** `idx_deadlines_matter`, `idx_deadlines_due`, `idx_deadlines_status`, `idx_deadlines_urgency`
+**Indexes:** `idx_deadlines_matter`, `idx_deadlines_due`, `idx_deadlines_status`, `idx_deadlines_urgency`, `idx_deadlines_ip_asset`
 
 ### `documents`
 
@@ -326,6 +329,59 @@ Partial or full payments against an invoice. Recording a payment auto-updates `i
 | `created_at` | DATETIME NOT NULL DEFAULT (datetime('now')) | |
 
 **Index:** `idx_payments_invoice`
+
+### `ip_assets`
+
+One row per registrable IP right on a matter. A matter can hold several assets
+(a brand filed in four Nice classes, a patent plus its divisionals); renewal and
+annuity dates belong to the asset, not the matter.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | TEXT PK | UUID |
+| `matter_id` | TEXT NOT NULL | FK → `matters(id)` ON DELETE CASCADE |
+| `asset_type` | TEXT NOT NULL | `Trademark \| Patent \| Design \| Copyright \| PlantVariety` |
+| `title` | TEXT NOT NULL | Mark name, invention title, or work title |
+| `application_number` | TEXT | Assigned at filing |
+| `registration_number` | TEXT | Only once registered/granted |
+| `filing_date` | DATE | |
+| `priority_date` | DATE | Paris Convention / PCT priority |
+| `grant_date` | DATE | |
+| `registration_date` | DATE | |
+| `expiry_date` | DATE | Next renewal falls due on this date |
+| `applicant_entity_type` | TEXT NOT NULL DEFAULT 'Company' | `Individual \| Startup \| SmallEntity \| Company \| Government` — drives official fee slabs |
+| `jurisdiction` | TEXT NOT NULL DEFAULT 'India' | |
+| `classes` | TEXT NOT NULL DEFAULT '[]' | JSON array of Nice (TM) or Locarno (Design) class numbers, e.g. `[9,42]` |
+| `status` | TEXT NOT NULL DEFAULT 'Pending' | `Pending \| Examination \| Accepted \| Advertised \| Opposed \| Registered \| Granted \| Lapsed \| Abandoned \| Cancelled` |
+| `notes` | TEXT | |
+| `created_at` | DATETIME NOT NULL DEFAULT (datetime('now')) | |
+| `updated_at` | DATETIME NOT NULL DEFAULT (datetime('now')) | |
+
+**Indexes:** `idx_ip_assets_matter`, `idx_ip_assets_type`, `idx_ip_assets_expiry`
+
+An asset cannot be deleted while deadlines still reference it — Keel returns an
+error rather than orphaning or cascading them.
+
+### `sessions`
+
+Persistent login sessions (B01). The row's `id` **is** the bearer token; it is
+stored in the OS keychain by `services/keychain.rs`, never in SQLite alongside
+the data it protects.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | TEXT PK | UUID v4 — the session token |
+| `user_id` | TEXT NOT NULL | FK → `users(id)` ON DELETE CASCADE |
+| `expires_at` | DATETIME NOT NULL | 8 hours from creation; extended by `refresh_session` |
+| `last_activity_at` | DATETIME NOT NULL DEFAULT (datetime('now')) | Stamped by `get_session`; does not extend expiry |
+| `created_at` | DATETIME NOT NULL DEFAULT (datetime('now')) | |
+| `updated_at` | DATETIME NOT NULL DEFAULT (datetime('now')) | |
+
+**Indexes:** `idx_sessions_user`, `idx_sessions_expires`
+
+A session is valid only while `expires_at > datetime('now')` **and** its user is
+still `is_active = 1`. Expired rows are cleared at startup. Logging in deletes
+the user's prior sessions, so one device holds one live token.
 
 ---
 

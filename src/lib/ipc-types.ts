@@ -27,10 +27,14 @@ export interface AIResponse {
 export type UserRole = 'Partner' | 'Associate' | 'Paralegal' | 'Admin';
 
 export interface Session {
+  /** Session token — primary key of the `sessions` row in Keel. */
+  sessionId: string;
   userId: string;
   name: string;
   role: UserRole;
   email: string;
+  /** SQLite datetime string, UTC. Session is invalid at/after this instant. */
+  expiresAt: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -184,6 +188,8 @@ export type EventType = 'Statutory' | 'Procedural' | 'Custom';
 export interface Deadline {
   id: string;
   matterId: string;
+  /** Set when the deadline belongs to a specific IP asset; null for matter-level ones. */
+  ipAssetId: string | null;
   docketingEvent: string;
   eventType: EventType;
   dueDate: string;
@@ -222,9 +228,98 @@ export interface StatutoryTemplate {
 
 export interface CreateDeadlineInput {
   matterId: string;
+  ipAssetId?: string;
   docketingEvent: string;
   eventType?: EventType;
   dueDate: string;
+  notes?: string;
+}
+
+// ---------------------------------------------------------------------------
+// IP Assets — Phase 1 Module 2 extended (B02)
+// ---------------------------------------------------------------------------
+
+export type IpAssetType =
+  | 'Trademark'
+  | 'Patent'
+  | 'Design'
+  | 'Copyright'
+  | 'PlantVariety';
+
+export type ApplicantEntityType =
+  | 'Individual'
+  | 'Startup'
+  | 'SmallEntity'
+  | 'Company'
+  | 'Government';
+
+export type IpAssetStatus =
+  | 'Pending'
+  | 'Examination'
+  | 'Accepted'
+  | 'Advertised'
+  | 'Opposed'
+  | 'Registered'
+  | 'Granted'
+  | 'Lapsed'
+  | 'Abandoned'
+  | 'Cancelled';
+
+export interface IpAsset {
+  id: string;
+  matterId: string;
+  assetType: IpAssetType;
+  title: string;
+  applicationNumber: string | null;
+  registrationNumber: string | null;
+  filingDate: string | null;
+  priorityDate: string | null;
+  grantDate: string | null;
+  registrationDate: string | null;
+  expiryDate: string | null;
+  applicantEntityType: ApplicantEntityType;
+  jurisdiction: string;
+  /** Nice (trademark) or Locarno (design) class numbers. */
+  classes: number[];
+  status: IpAssetStatus;
+  notes: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateIpAssetInput {
+  matterId: string;
+  assetType: IpAssetType;
+  title: string;
+  applicationNumber?: string;
+  registrationNumber?: string;
+  filingDate?: string;
+  priorityDate?: string;
+  grantDate?: string;
+  registrationDate?: string;
+  expiryDate?: string;
+  applicantEntityType?: ApplicantEntityType;
+  jurisdiction?: string;
+  classes?: number[];
+  status?: IpAssetStatus;
+  notes?: string;
+}
+
+/** Every field optional — only what is supplied is written. */
+export interface UpdateIpAssetInput {
+  assetType?: IpAssetType;
+  title?: string;
+  applicationNumber?: string;
+  registrationNumber?: string;
+  filingDate?: string;
+  priorityDate?: string;
+  grantDate?: string;
+  registrationDate?: string;
+  expiryDate?: string;
+  applicantEntityType?: ApplicantEntityType;
+  jurisdiction?: string;
+  classes?: number[];
+  status?: IpAssetStatus;
   notes?: string;
 }
 

@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 use tauri::Manager;
 use tokio::sync::Mutex;
@@ -10,17 +11,22 @@ mod storage;
 
 pub mod db;
 
+use services::keychain::Keychain;
+
 // ---------------------------------------------------------------------------
 // App state shared across all Tauri commands
 // ---------------------------------------------------------------------------
 
-/// In-memory session — set on login, cleared on logout.
-/// Stored here (not in DB) so a restart always requires re-authentication.
+/// Cached view of the active session.
+/// The authoritative record is the `sessions` table — this only avoids a DB
+/// round trip on hot paths. Restored at startup from the keychain token (B01).
 #[derive(Debug, Clone)]
 pub struct SessionData {
-    pub user_id: String,
-    pub name:    String,
-    pub role:    String,
+    /// The session token — primary key of the `sessions` row.
+    pub session_id: String,
+    pub user_id:    String,
+    pub name:       String,
+    pub role:       String,
 }
 
 pub struct AppState {
@@ -29,8 +35,13 @@ pub struct AppState {
     pub vault_key: Arc<[u8; 32]>,
     /// vault_dir: directory where AES-256-GCM encrypted document files live
     pub vault_dir: std::path::PathBuf,
-    /// session: None until the user calls login(); cleared on logout() or restart
+    /// session: cache of the active session; None when logged out
     pub session:   Arc<Mutex<Option<SessionData>>>,
+    /// keychain: OS-native storage for the session token (survives restart)
+    pub keychain:  Arc<Keychain>,
+    /// login_attempts: per-email failure counters for rate limiting.
+    /// In memory by design — resets on restart (specs/auth-rbac.md §Security Rules).
+    pub login_attempts: Arc<Mutex<HashMap<String, commands::auth::AttemptState>>>,
 }
 
 // ---------------------------------------------------------------------------
@@ -110,11 +121,25 @@ pub fn run() {
                 }
             });
 
+            // Clear sessions that expired while the app was closed, so the
+            // sessions table does not grow without bound.
+            tauri::async_runtime::block_on(async {
+                match db::queries::sessions::delete_expired(&pool).await {
+                    Ok(n) if n > 0 => log::info!("Cleared {n} expired session(s)"),
+                    Ok(_) => {}
+                    Err(e) => log::warn!("failed to clear expired sessions: {e}"),
+                }
+            });
+
             app.manage(AppState {
                 db:        Arc::new(Mutex::new(pool.clone())),
                 vault_key,
                 vault_dir,
+                // Populated lazily by get_session(), which validates the keychain
+                // token against the DB on the first call after launch.
                 session:   Arc::new(Mutex::new(None)),
+                keychain:  Arc::new(Keychain::new(&app_data_dir)),
+                login_attempts: Arc::new(Mutex::new(HashMap::new())),
             });
 
             // Start the deadline watcher background service.
@@ -151,6 +176,12 @@ pub fn run() {
             commands::deadlines::mark_deadline_complete,
             commands::deadlines::delete_deadline,
             commands::deadlines::get_statutory_templates,
+            // --- IP assets (B02) ---
+            commands::ip_assets::list_ip_assets,
+            commands::ip_assets::get_ip_asset,
+            commands::ip_assets::create_ip_asset,
+            commands::ip_assets::update_ip_asset,
+            commands::ip_assets::delete_ip_asset,
             // --- documents ---
             commands::documents::list_documents,
             commands::documents::upload_document,
@@ -178,6 +209,7 @@ pub fn run() {
             commands::auth::login,
             commands::auth::logout,
             commands::auth::get_session,
+            commands::auth::refresh_session,
             // --- sync ---
             commands::sync::sync_status,
             commands::sync::trigger_sync,

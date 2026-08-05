@@ -8,9 +8,11 @@ import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router';
 import { motion, AnimatePresence } from 'motion/react';
 import { useReducedMotion } from 'motion/react';
-import type { Deadline, Matter, MatterType, StatutoryTemplate } from '@/lib/ipc-types';
+import type { Deadline, IpAsset, IpAssetType, Matter, MatterType, StatutoryTemplate } from '@/lib/ipc-types';
 import { keel } from '@/lib/tauri';
 import { UrgencyBadge, DueDate } from '@/components/dockets/UrgencyBadge';
+import { IpAssetStatusBadge, IpAssetTypePill, ClassChips } from '@/components/dockets/IpAssetStatusBadge';
+import { IpAssetDrawer } from '@/components/dockets/IpAssetDrawer';
 import { MatterStatusBadge, MatterTypePill } from '@/components/matters/MatterStatusBadge';
 import { colors, fonts, fontSizes, radius, shadows, spacing } from '@/design-system/tokens';
 import { transition, panelVariants } from '@/design-system/motion';
@@ -23,6 +25,10 @@ interface AddDeadlineDrawerProps {
   open: boolean;
   matterId: string;
   matterType: MatterType;
+  /** Assets on this matter — a deadline may be attached to one (B02). */
+  assets: IpAsset[];
+  /** Pre-selected asset when the timeline is filtered to one. */
+  defaultAssetId?: string | null;
   onClose: () => void;
   onAdded: () => void;
 }
@@ -40,13 +46,16 @@ const inputStyle = {
   boxSizing: 'border-box' as const,
 };
 
-function AddDeadlineDrawer({ open, matterId, matterType, onClose, onAdded }: AddDeadlineDrawerProps) {
+function AddDeadlineDrawer({
+  open, matterId, matterType, assets, defaultAssetId, onClose, onAdded,
+}: AddDeadlineDrawerProps) {
   const shouldReduce = useReducedMotion();
   const [tab, setTab] = useState<'custom' | 'templates'>('custom');
   const [templates, setTemplates] = useState<StatutoryTemplate[]>([]);
   const [event, setEvent] = useState('');
   const [dueDate, setDueDate] = useState('');
   const [eventType, setEventType] = useState<'Statutory' | 'Procedural' | 'Custom'>('Custom');
+  const [ipAssetId, setIpAssetId] = useState<string>('');
   const [notes, setNotes] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -54,9 +63,10 @@ function AddDeadlineDrawer({ open, matterId, matterType, onClose, onAdded }: Add
   useEffect(() => {
     if (open) {
       setEvent(''); setDueDate(''); setNotes(''); setError(null);
+      setIpAssetId(defaultAssetId ?? '');
       keel.deadlines.getTemplates(matterType).then(setTemplates).catch(() => setTemplates([]));
     }
-  }, [open, matterType]);
+  }, [open, matterType, defaultAssetId]);
 
   const save = async () => {
     if (!event.trim() || !dueDate) {
@@ -66,7 +76,14 @@ function AddDeadlineDrawer({ open, matterId, matterType, onClose, onAdded }: Add
     setSaving(true);
     setError(null);
     try {
-      await keel.deadlines.create({ matterId, docketingEvent: event.trim(), eventType, dueDate, notes: notes.trim() || undefined });
+      await keel.deadlines.create({
+        matterId,
+        ipAssetId: ipAssetId || undefined,
+        docketingEvent: event.trim(),
+        eventType,
+        dueDate,
+        notes: notes.trim() || undefined,
+      });
       onAdded();
       onClose();
     } catch (e: unknown) {
@@ -188,6 +205,17 @@ function AddDeadlineDrawer({ open, matterId, matterType, onClose, onAdded }: Add
                       </select>
                     </div>
                   </div>
+                  {assets.length > 0 && (
+                    <div>
+                      <label style={{ display: 'block', fontSize: fontSizes.label, fontWeight: 500, color: colors.textSecondary, marginBottom: 5, fontFamily: fonts.ui }}>IP asset</label>
+                      <select value={ipAssetId} onChange={e => setIpAssetId(e.target.value)} style={{ ...inputStyle, cursor: 'pointer' }}>
+                        <option value="">Matter-level (no asset)</option>
+                        {assets.map(a => (
+                          <option key={a.id} value={a.id}>{a.title}</option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
                   <div>
                     <label style={{ display: 'block', fontSize: fontSizes.label, fontWeight: 500, color: colors.textSecondary, marginBottom: 5, fontFamily: fonts.ui }}>Notes</label>
                     <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={3} style={{ ...inputStyle, resize: 'vertical' }} />
@@ -322,6 +350,23 @@ function TimelineRow({ deadline: d, onComplete }: TimelineRowProps) {
 // IPAssetRecord page
 // ---------------------------------------------------------------------------
 
+/**
+ * Seed the asset-type picker from the matter type. Only four matter types name
+ * an IP right; Corporate/Litigation/Paralegal matters can still hold assets, so
+ * they fall back to Trademark rather than an invalid value.
+ */
+function defaultAssetTypeFor(matterType: MatterType): IpAssetType {
+  switch (matterType) {
+    case 'Trademark':
+    case 'Patent':
+    case 'Design':
+    case 'Copyright':
+      return matterType;
+    default:
+      return 'Trademark';
+  }
+}
+
 export default function IPAssetRecord() {
   const { matterId } = useParams<{ matterId: string }>();
   const navigate = useNavigate();
@@ -329,19 +374,26 @@ export default function IPAssetRecord() {
 
   const [matter, setMatter] = useState<Matter | null>(null);
   const [deadlines, setDeadlines] = useState<Deadline[]>([]);
+  const [assets, setAssets] = useState<IpAsset[]>([]);
   const [loading, setLoading] = useState(true);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [assetDrawerOpen, setAssetDrawerOpen] = useState(false);
+  const [editingAsset, setEditingAsset] = useState<IpAsset | null>(null);
+  /** null = show every deadline; an id = show only that asset's deadlines. */
+  const [assetFilter, setAssetFilter] = useState<string | null>(null);
 
   const load = async () => {
     if (!matterId) return;
     setLoading(true);
     try {
-      const [m, dl] = await Promise.all([
+      const [m, dl, ip] = await Promise.all([
         keel.matters.get(matterId),
         keel.deadlines.list(matterId),
+        keel.ipAssets.list(matterId),
       ]);
       setMatter(m);
       setDeadlines(dl);
+      setAssets(ip);
     } catch {
       navigate('/dockets');
     } finally {
@@ -363,8 +415,18 @@ export default function IPAssetRecord() {
     );
   }
 
-  const pending = deadlines.filter(d => d.status === 'Pending');
-  const done    = deadlines.filter(d => d.status !== 'Pending');
+  const visible = assetFilter
+    ? deadlines.filter(d => d.ipAssetId === assetFilter)
+    : deadlines;
+  const pending = visible.filter(d => d.status === 'Pending');
+  const done    = visible.filter(d => d.status !== 'Pending');
+
+  /** Pending deadline count per asset — shown on each asset card. */
+  const pendingCountFor = (assetId: string) =>
+    deadlines.filter(d => d.ipAssetId === assetId && d.status === 'Pending').length;
+
+  const openNewAsset = () => { setEditingAsset(null); setAssetDrawerOpen(true); };
+  const openEditAsset = (a: IpAsset) => { setEditingAsset(a); setAssetDrawerOpen(true); };
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
@@ -397,20 +459,151 @@ export default function IPAssetRecord() {
             </div>
           </div>
 
-          <motion.button
-            onClick={() => setDrawerOpen(true)}
-            whileHover={!shouldReduce ? { opacity: 0.88 } : undefined}
-            whileTap={!shouldReduce ? { scale: 0.97 } : undefined}
-            style={{ padding: `${spacing[2]} ${spacing[5]}`, borderRadius: radius.button, border: 'none', background: colors.accentPrimary, color: '#fff', fontFamily: fonts.ui, fontSize: fontSizes.body, fontWeight: 500, cursor: 'pointer', flexShrink: 0 }}
-          >
-            + Add deadline
-          </motion.button>
+          <div style={{ display: 'flex', gap: spacing[3], flexShrink: 0 }}>
+            <motion.button
+              onClick={openNewAsset}
+              whileHover={!shouldReduce ? { opacity: 0.88 } : undefined}
+              whileTap={!shouldReduce ? { scale: 0.97 } : undefined}
+              style={{ padding: `${spacing[2]} ${spacing[5]}`, borderRadius: radius.button, border: `0.5px solid ${colors.accentPrimary}`, background: 'transparent', color: colors.accentPrimary, fontFamily: fonts.ui, fontSize: fontSizes.body, fontWeight: 500, cursor: 'pointer' }}
+            >
+              + Add asset
+            </motion.button>
+            <motion.button
+              onClick={() => setDrawerOpen(true)}
+              whileHover={!shouldReduce ? { opacity: 0.88 } : undefined}
+              whileTap={!shouldReduce ? { scale: 0.97 } : undefined}
+              style={{ padding: `${spacing[2]} ${spacing[5]}`, borderRadius: radius.button, border: 'none', background: colors.accentPrimary, color: '#fff', fontFamily: fonts.ui, fontSize: fontSizes.body, fontWeight: 500, cursor: 'pointer' }}
+            >
+              + Add deadline
+            </motion.button>
+          </div>
         </div>
       </header>
 
-      {/* Timeline */}
+      {/* Scroll region: IP assets, then the deadline timeline */}
       <div style={{ flex: 1, overflow: 'auto', padding: `${spacing[6]} ${spacing[8]}`, maxWidth: 720 }}>
-        {deadlines.length === 0 ? (
+
+        {/* IP assets on this matter */}
+        {assets.length > 0 && (
+          <section style={{ marginBottom: spacing[8] }}>
+            <div style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              marginBottom: spacing[3],
+            }}>
+              <div style={{
+                fontSize: fontSizes.label, fontWeight: 500, color: colors.textTertiary,
+                textTransform: 'uppercase' as const, letterSpacing: '0.06em',
+              }}>
+                IP Assets ({assets.length})
+              </div>
+              {assetFilter && (
+                <button
+                  onClick={() => setAssetFilter(null)}
+                  style={{
+                    background: 'none', border: 'none', cursor: 'pointer', padding: 0,
+                    color: colors.accentPrimary, fontFamily: fonts.ui, fontSize: fontSizes.label,
+                  }}
+                >
+                  Show all deadlines
+                </button>
+              )}
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: spacing[3] }}>
+              {assets.map(a => {
+                const selected = assetFilter === a.id;
+                const count = pendingCountFor(a.id);
+                return (
+                  <motion.div
+                    key={a.id}
+                    layout
+                    whileHover={!shouldReduce ? { y: -2 } : undefined}
+                    transition={transition.fast}
+                    onClick={() => setAssetFilter(selected ? null : a.id)}
+                    style={{
+                      padding: spacing[4],
+                      borderRadius: radius.card,
+                      background: selected ? 'rgba(74,101,128,0.06)' : colors.bgSecondary,
+                      border: `0.5px solid ${selected ? colors.accentPrimary : colors.border}`,
+                      boxShadow: shadows.card,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    <div style={{
+                      display: 'flex', alignItems: 'flex-start',
+                      justifyContent: 'space-between', gap: spacing[4],
+                    }}>
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{
+                          fontFamily: fonts.ui, fontSize: fontSizes.cardTitle, fontWeight: 500,
+                          color: colors.textPrimary, marginBottom: 5,
+                        }}>
+                          {a.title}
+                        </div>
+                        <div style={{
+                          display: 'flex', alignItems: 'center', gap: spacing[2], flexWrap: 'wrap',
+                        }}>
+                          <IpAssetTypePill assetType={a.assetType} />
+                          <IpAssetStatusBadge status={a.status} />
+                          <ClassChips classes={a.classes} />
+                        </div>
+                      </div>
+
+                      <button
+                        onClick={e => { e.stopPropagation(); openEditAsset(a); }}
+                        style={{
+                          background: 'none', border: 'none', cursor: 'pointer', padding: 0,
+                          color: colors.textTertiary, fontFamily: fonts.ui,
+                          fontSize: fontSizes.label, flexShrink: 0,
+                        }}
+                      >
+                        Edit
+                      </button>
+                    </div>
+
+                    <div style={{
+                      display: 'flex', alignItems: 'center', gap: spacing[4],
+                      marginTop: spacing[3], flexWrap: 'wrap',
+                      fontSize: fontSizes.label, fontFamily: fonts.ui, color: colors.textSecondary,
+                    }}>
+                      {a.applicationNumber && (
+                        <span style={{ fontFamily: fonts.mono, fontSize: fontSizes.mono }}>
+                          App. {a.applicationNumber}
+                        </span>
+                      )}
+                      {a.registrationNumber && (
+                        <span style={{ fontFamily: fonts.mono, fontSize: fontSizes.mono }}>
+                          Reg. {a.registrationNumber}
+                        </span>
+                      )}
+                      {a.expiryDate && (
+                        <span>
+                          Renewal {new Date(a.expiryDate).toLocaleDateString('en-IN', {
+                            day: 'numeric', month: 'short', year: 'numeric',
+                          })}
+                        </span>
+                      )}
+                      <span style={{ color: count > 0 ? colors.textSecondary : colors.textTertiary }}>
+                        {count} pending deadline{count === 1 ? '' : 's'}
+                      </span>
+                    </div>
+                  </motion.div>
+                );
+              })}
+            </div>
+          </section>
+        )}
+
+        {/* Deadline timeline */}
+        {assetFilter && (
+          <div style={{
+            fontSize: fontSizes.label, fontFamily: fonts.ui, color: colors.textTertiary,
+            marginBottom: spacing[3],
+          }}>
+            Showing deadlines for {assets.find(a => a.id === assetFilter)?.title ?? 'selected asset'}
+          </div>
+        )}
+        {visible.length === 0 ? (
           <div style={{ textAlign: 'center', paddingTop: spacing[10], color: colors.textTertiary, fontFamily: fonts.ui }}>
             <div style={{ fontFamily: fonts.display, fontSize: fontSizes.displaySm, marginBottom: spacing[3] }}>No deadlines yet</div>
             <p style={{ fontSize: fontSizes.body, margin: 0 }}>Add a deadline or generate from statutory templates.</p>
@@ -438,8 +631,19 @@ export default function IPAssetRecord() {
         open={drawerOpen}
         matterId={matter.id}
         matterType={matter.matterType as MatterType}
+        assets={assets}
+        defaultAssetId={assetFilter}
         onClose={() => setDrawerOpen(false)}
         onAdded={load}
+      />
+
+      <IpAssetDrawer
+        open={assetDrawerOpen}
+        matterId={matter.id}
+        asset={editingAsset}
+        defaultAssetType={defaultAssetTypeFor(matter.matterType)}
+        onClose={() => { setAssetDrawerOpen(false); setEditingAsset(null); }}
+        onSaved={load}
       />
     </div>
   );

@@ -11,6 +11,7 @@ use crate::commands::deadlines::{
 pub struct DeadlineRow {
     pub id:              String,
     pub matter_id:       String,
+    pub ip_asset_id:     Option<String>,
     pub docketing_event: String,
     pub event_type:      String,
     pub due_date:        String,
@@ -44,6 +45,7 @@ impl From<DeadlineRow> for Deadline {
         Deadline {
             id:              r.id,
             matter_id:       r.matter_id,
+            ip_asset_id:     r.ip_asset_id,
             docketing_event: r.docketing_event,
             event_type:      r.event_type,
             due_date:        r.due_date,
@@ -103,7 +105,7 @@ pub fn urgency_for(due_date: &str, status: &str) -> &'static str {
 
 pub async fn get_by_id(pool: &SqlitePool, id: &str) -> anyhow::Result<Option<Deadline>> {
     let row = sqlx::query_as::<_, DeadlineRow>(
-        "SELECT id, matter_id, docketing_event, event_type, due_date, status, urgency,
+        "SELECT id, matter_id, ip_asset_id, docketing_event, event_type, due_date, status, urgency,
                 notes, completed_at, completed_by, created_at, updated_at
          FROM deadlines WHERE id = ?"
     )
@@ -116,7 +118,7 @@ pub async fn get_by_id(pool: &SqlitePool, id: &str) -> anyhow::Result<Option<Dea
 /// All deadlines for a single matter, ordered by due date.
 pub async fn list_for_matter(pool: &SqlitePool, matter_id: &str) -> anyhow::Result<Vec<Deadline>> {
     let rows = sqlx::query_as::<_, DeadlineRow>(
-        "SELECT id, matter_id, docketing_event, event_type, due_date, status, urgency,
+        "SELECT id, matter_id, ip_asset_id, docketing_event, event_type, due_date, status, urgency,
                 notes, completed_at, completed_by, created_at, updated_at
          FROM deadlines
          WHERE matter_id = ?
@@ -163,11 +165,12 @@ pub async fn create(
     let event_type = input.event_type.as_deref().unwrap_or("Custom");
 
     sqlx::query(
-        "INSERT INTO deadlines (id, matter_id, docketing_event, event_type, due_date, urgency, notes)
-         VALUES (?, ?, ?, ?, ?, ?, ?)"
+        "INSERT INTO deadlines (id, matter_id, ip_asset_id, docketing_event, event_type, due_date, urgency, notes)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
     )
     .bind(id)
     .bind(&input.matter_id)
+    .bind(&input.ip_asset_id)
     .bind(&input.docketing_event)
     .bind(event_type)
     .bind(&input.due_date)
@@ -315,6 +318,7 @@ mod tests {
         sqlx::query(
             "CREATE TABLE deadlines (
                 id TEXT PRIMARY KEY, matter_id TEXT NOT NULL, docketing_event TEXT NOT NULL,
+                ip_asset_id TEXT,
                 event_type TEXT NOT NULL DEFAULT 'Custom',
                 due_date DATE NOT NULL,
                 status TEXT NOT NULL DEFAULT 'Pending',
@@ -358,6 +362,7 @@ mod tests {
             .format("%Y-%m-%d").to_string();
         let input = CreateDeadlineInput {
             matter_id:       "M-001".into(),
+            ip_asset_id:     None,
             docketing_event: "Examination Report Response".into(),
             event_type:      Some("Statutory".into()),
             due_date:        due.clone(),
@@ -373,6 +378,45 @@ mod tests {
         assert_eq!(fetched.event_type, "Statutory");
     }
 
+    /// B02: a deadline can hang off a specific IP asset, and round-trips as such.
+    #[tokio::test]
+    async fn test_deadline_links_to_ip_asset() {
+        let pool = test_pool().await;
+        let due = (chrono::Utc::now() + chrono::Duration::days(60))
+            .format("%Y-%m-%d").to_string();
+
+        let linked = CreateDeadlineInput {
+            matter_id:       "M-001".into(),
+            ip_asset_id:     Some("ip-001".into()),
+            docketing_event: "Renewal — 10 year term".into(),
+            event_type:      Some("Statutory".into()),
+            due_date:        due.clone(),
+            notes:           None,
+        };
+        let d = create(&pool, "D-100", &linked).await.unwrap();
+        assert_eq!(d.ip_asset_id.as_deref(), Some("ip-001"));
+
+        // Survives a re-read.
+        let fetched = get_by_id(&pool, "D-100").await.unwrap().unwrap();
+        assert_eq!(fetched.ip_asset_id.as_deref(), Some("ip-001"));
+
+        // Matter-level deadlines still work with no asset attached.
+        let unlinked = CreateDeadlineInput {
+            matter_id:       "M-001".into(),
+            ip_asset_id:     None,
+            docketing_event: "Client call".into(),
+            event_type:      None,
+            due_date:        due,
+            notes:           None,
+        };
+        let d2 = create(&pool, "D-101", &unlinked).await.unwrap();
+        assert!(d2.ip_asset_id.is_none());
+
+        // Both appear in the matter listing.
+        let all = list_for_matter(&pool, "M-001").await.unwrap();
+        assert_eq!(all.len(), 2);
+    }
+
     #[tokio::test]
     async fn test_mark_complete() {
         let pool = test_pool().await;
@@ -380,6 +424,7 @@ mod tests {
             .format("%Y-%m-%d").to_string();
         let input = CreateDeadlineInput {
             matter_id:       "M-001".into(),
+            ip_asset_id:     None,
             docketing_event: "Filing".into(),
             event_type:      None,
             due_date:        due,
@@ -400,6 +445,7 @@ mod tests {
             .format("%Y-%m-%d").to_string();
         let input = CreateDeadlineInput {
             matter_id:       "M-001".into(),
+            ip_asset_id:     None,
             docketing_event: "Old filing".into(),
             event_type:      None,
             due_date:        overdue_date,

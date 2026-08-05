@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { Routes, Route, Navigate, useNavigate } from 'react-router';
 import { AppShell } from '@/components/shell/AppShell';
 import MatterList from '@/pages/Matters/MatterList';
@@ -11,6 +11,7 @@ import BillingHome from '@/pages/Billing/BillingHome';
 import LoginScreen from '@/pages/Auth/LoginScreen';
 import { useAuthStore } from '@/stores/auth';
 import { keel } from '@/lib/tauri';
+import { msUntil } from '@/lib/dates';
 import { colors, fonts, fontSizes } from '@/design-system/tokens';
 
 // ---------------------------------------------------------------------------
@@ -48,6 +49,60 @@ function SessionGate({ children }: { children: React.ReactNode }) {
   }
 
   return <>{children}</>;
+}
+
+// ---------------------------------------------------------------------------
+// Session keep-alive — extends an 8-hour session while the attorney is working,
+// and drops to the login screen the moment it lapses (B01).
+//
+// Keel is authoritative: it only extends sessions that are still valid, so this
+// can never revive a dead session. Deck's job is just to ask at sensible times.
+// ---------------------------------------------------------------------------
+
+/** How often we evaluate the session. */
+const SESSION_CHECK_INTERVAL_MS = 5 * 60 * 1000;   // 5 minutes
+/** Refresh once the session has less than this left — well inside the 8h window. */
+const SESSION_REFRESH_THRESHOLD_MS = 2 * 60 * 60 * 1000;  // 2 hours
+
+function SessionKeepAlive() {
+  const activeSinceLastCheck = useRef(false);
+
+  useEffect(() => {
+    const markActive = () => { activeSinceLastCheck.current = true; };
+    window.addEventListener('pointerdown', markActive);
+    window.addEventListener('keydown', markActive);
+
+    const check = async () => {
+      const { session, setSession, clearSession } = useAuthStore.getState();
+      if (!session) return;
+
+      const remaining = msUntil(session.expiresAt);
+
+      // Already lapsed — confirm with Keel, which clears the stored token.
+      if (remaining === null || remaining <= 0) {
+        const current = await keel.auth.getSession().catch(() => null);
+        if (current) setSession(current); else clearSession();
+        return;
+      }
+
+      // Only extend for an attorney who is actually working. An idle app is
+      // left to expire on schedule rather than renewing itself forever.
+      if (activeSinceLastCheck.current && remaining < SESSION_REFRESH_THRESHOLD_MS) {
+        activeSinceLastCheck.current = false;
+        const refreshed = await keel.auth.refreshSession().catch(() => null);
+        if (refreshed) setSession(refreshed); else clearSession();
+      }
+    };
+
+    const timer = window.setInterval(check, SESSION_CHECK_INTERVAL_MS);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener('pointerdown', markActive);
+      window.removeEventListener('keydown', markActive);
+    };
+  }, []);
+
+  return null;
 }
 
 // ---------------------------------------------------------------------------
@@ -91,6 +146,7 @@ export default function App() {
           <SessionGate>
             <AppShell>
               <LogoutHandler />
+              <SessionKeepAlive />
               <Routes>
                 <Route index element={<Navigate to="/matters" replace />} />
 
