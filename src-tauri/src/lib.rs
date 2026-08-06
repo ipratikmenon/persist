@@ -230,9 +230,18 @@ pub fn run() {
             commands::auth::logout,
             commands::auth::get_session,
             commands::auth::refresh_session,
-            // --- sync ---
+            // --- sync + client portal (M5) ---
             commands::sync::sync_status,
             commands::sync::trigger_sync,
+            commands::sync::set_sync_enabled,
+            commands::sync::set_sync_server,
+            commands::sync::invite_portal_user,
+            commands::sync::list_portal_users,
+            commands::sync::revoke_portal_user,
+            commands::sync::share_document,
+            commands::sync::unshare_document,
+            commands::sync::set_deadline_client_visible,
+            commands::sync::list_shared_documents,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Persist");

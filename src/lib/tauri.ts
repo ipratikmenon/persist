@@ -32,6 +32,8 @@ import type {
   MatterType,
   Payment,
   RecordPaymentInput,
+  InvitePortalUserInput,
+  PortalUser,
   Session,
   StatutoryTemplate,
   SyncStatus,
@@ -207,9 +209,34 @@ export const keel = {
     delete: (id: string) => invoke<void>('delete_document', { id }),
   },
 
-  // ---- Sync -------------------------------------------------------------
+  // ---- Sync + client portal (M5) ----------------------------------------
   sync: {
     status: () => invoke<SyncStatus>('sync_status'),
+    /** Errors while the transport is unbuilt (Step 3b) or sync is off. */
     trigger: () => invoke<SyncStatus>('trigger_sync'),
+    /** Refused by Keel unless a server URL is configured. */
+    setEnabled: (enabled: boolean) => invoke<SyncStatus>('set_sync_enabled', { enabled }),
+    setServer: (url: string) => invoke<SyncStatus>('set_sync_server', { url }),
+  },
+
+  portalUsers: {
+    list: (clientId: string) => invoke<PortalUser[]>('list_portal_users', { clientId }),
+    invite: (input: InvitePortalUserInput) =>
+      invoke<PortalUser>('invite_portal_user', { input }),
+    /** Takes effect at the portal's next request, not at token expiry. */
+    revoke: (id: string) => invoke<PortalUser>('revoke_portal_user', { id }),
+  },
+
+  sharing: {
+    shareDocument: (documentId: string) =>
+      invoke<void>('share_document', { documentId }),
+    /** Queues a tombstone — removes the mirror row and the stored object. */
+    unshareDocument: (documentId: string) =>
+      invoke<void>('unshare_document', { documentId }),
+    setDeadlineClientVisible: (id: string, visible: boolean) =>
+      invoke<void>('set_deadline_client_visible', { id, visible }),
+    /** What the client can currently see for a matter. */
+    listSharedDocuments: (matterId: string) =>
+      invoke<DocumentMeta[]>('list_shared_documents', { matterId }),
   },
 };

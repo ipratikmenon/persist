@@ -7,10 +7,14 @@ interface SyncStore {
 }
 
 export const useSyncStore = create<SyncStore>((set) => ({
+  // Matches Keel's default: sync is off until a server URL is configured.
   status: {
     lastSyncedAt: null,
     isSyncing: false,
     pendingChanges: 0,
+    isEnabled: false,
+    serverUrl: null,
+    lastError: null,
   },
   setStatus: (status) => set({ status }),
 }));

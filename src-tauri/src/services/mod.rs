@@ -4,3 +4,4 @@ pub mod cascade_engine;
 pub mod deadline_watcher;
 pub mod keychain;
 pub mod latex;
+pub mod sync_engine;

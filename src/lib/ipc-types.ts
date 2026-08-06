@@ -644,4 +644,34 @@ export interface SyncStatus {
   lastSyncedAt: string | null;
   isSyncing: boolean;
   pendingChanges: number;
+  /** False until a server URL is set and sync is deliberately enabled. */
+  isEnabled: boolean;
+  serverUrl: string | null;
+  lastError: string | null;
+}
+
+// ---------------------------------------------------------------------------
+// Client portal — Phase 2 Module 5
+// ---------------------------------------------------------------------------
+
+export type PortalUserStatus = 'Invited' | 'Active' | 'Suspended' | 'Revoked';
+
+/** A person with portal access. One email maps to exactly one client. */
+export interface PortalUser {
+  id: string;
+  clientId: string;
+  fullName: string;
+  email: string;
+  phone: string | null;
+  status: PortalUserStatus;
+  invitedBy: string;
+  invitedAt: string;
+  lastLoginAt: string | null;
+}
+
+export interface InvitePortalUserInput {
+  clientId: string;
+  fullName: string;
+  email: string;
+  phone?: string;
 }

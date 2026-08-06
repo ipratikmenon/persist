@@ -21,6 +21,7 @@ pub struct DeadlineRow {
     pub notes:           Option<String>,
     pub completed_at:    Option<String>,
     pub completed_by:    Option<String>,
+    pub is_client_visible: i64,
     pub created_by:      Option<String>,
     pub is_verified:     i64,
     pub verified_by:     Option<String>,
@@ -117,7 +118,8 @@ pub async fn get_by_id(pool: &SqlitePool, id: &str) -> anyhow::Result<Option<Dea
     let row = sqlx::query_as::<_, DeadlineRow>(
         "SELECT id, matter_id, ip_asset_id, reference_number, docketing_event, event_type,
                 due_date, status, urgency, notes, completed_at, completed_by,
-                created_by, is_verified, verified_by, verified_at, created_at, updated_at
+                is_client_visible, created_by, is_verified, verified_by, verified_at,
+                created_at, updated_at
          FROM deadlines WHERE id = ?"
     )
     .bind(id)
@@ -131,7 +133,8 @@ pub async fn list_for_matter(pool: &SqlitePool, matter_id: &str) -> anyhow::Resu
     let rows = sqlx::query_as::<_, DeadlineRow>(
         "SELECT id, matter_id, ip_asset_id, reference_number, docketing_event, event_type,
                 due_date, status, urgency, notes, completed_at, completed_by,
-                created_by, is_verified, verified_by, verified_at, created_at, updated_at
+                is_client_visible, created_by, is_verified, verified_by, verified_at,
+                created_at, updated_at
          FROM deadlines
          WHERE matter_id = ?
          ORDER BY due_date ASC, created_at ASC"
