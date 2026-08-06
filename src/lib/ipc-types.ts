@@ -191,6 +191,8 @@ export interface Deadline {
   matterId: string;
   /** Set when the deadline belongs to a specific IP asset; null for matter-level ones. */
   ipAssetId: string | null;
+  /** P&P-DD-NNNN — citable in correspondence. */
+  referenceNumber: string | null;
   docketingEvent: string;
   eventType: EventType;
   dueDate: string;
@@ -199,6 +201,11 @@ export interface Deadline {
   notes: string | null;
   completedAt: string | null;
   completedBy: string | null;
+  /** Who entered the date. Dual verification requires a different verifier. */
+  createdBy: string | null;
+  isVerified: boolean;
+  verifiedBy: string | null;
+  verifiedAt: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -230,6 +237,7 @@ export interface StatutoryTemplate {
 export interface CreateDeadlineInput {
   matterId: string;
   ipAssetId?: string;
+  // createdBy is set by Keel from the session — never sent by Deck.
   docketingEvent: string;
   eventType?: EventType;
   dueDate: string;

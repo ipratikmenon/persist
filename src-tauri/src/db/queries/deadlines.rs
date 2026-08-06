@@ -12,6 +12,7 @@ pub struct DeadlineRow {
     pub id:              String,
     pub matter_id:       String,
     pub ip_asset_id:     Option<String>,
+    pub reference_number: Option<String>,
     pub docketing_event: String,
     pub event_type:      String,
     pub due_date:        String,
@@ -20,6 +21,10 @@ pub struct DeadlineRow {
     pub notes:           Option<String>,
     pub completed_at:    Option<String>,
     pub completed_by:    Option<String>,
+    pub created_by:      Option<String>,
+    pub is_verified:     i64,
+    pub verified_by:     Option<String>,
+    pub verified_at:     Option<String>,
     pub created_at:      String,
     pub updated_at:      String,
 }
@@ -46,6 +51,7 @@ impl From<DeadlineRow> for Deadline {
             id:              r.id,
             matter_id:       r.matter_id,
             ip_asset_id:     r.ip_asset_id,
+            reference_number: r.reference_number,
             docketing_event: r.docketing_event,
             event_type:      r.event_type,
             due_date:        r.due_date,
@@ -54,6 +60,10 @@ impl From<DeadlineRow> for Deadline {
             notes:           r.notes,
             completed_at:    r.completed_at,
             completed_by:    r.completed_by,
+            created_by:      r.created_by,
+            is_verified:     r.is_verified != 0,
+            verified_by:     r.verified_by,
+            verified_at:     r.verified_at,
             created_at:      r.created_at,
             updated_at:      r.updated_at,
         }
@@ -105,8 +115,9 @@ pub fn urgency_for(due_date: &str, status: &str) -> &'static str {
 
 pub async fn get_by_id(pool: &SqlitePool, id: &str) -> anyhow::Result<Option<Deadline>> {
     let row = sqlx::query_as::<_, DeadlineRow>(
-        "SELECT id, matter_id, ip_asset_id, docketing_event, event_type, due_date, status, urgency,
-                notes, completed_at, completed_by, created_at, updated_at
+        "SELECT id, matter_id, ip_asset_id, reference_number, docketing_event, event_type,
+                due_date, status, urgency, notes, completed_at, completed_by,
+                created_by, is_verified, verified_by, verified_at, created_at, updated_at
          FROM deadlines WHERE id = ?"
     )
     .bind(id)
@@ -118,8 +129,9 @@ pub async fn get_by_id(pool: &SqlitePool, id: &str) -> anyhow::Result<Option<Dea
 /// All deadlines for a single matter, ordered by due date.
 pub async fn list_for_matter(pool: &SqlitePool, matter_id: &str) -> anyhow::Result<Vec<Deadline>> {
     let rows = sqlx::query_as::<_, DeadlineRow>(
-        "SELECT id, matter_id, ip_asset_id, docketing_event, event_type, due_date, status, urgency,
-                notes, completed_at, completed_by, created_at, updated_at
+        "SELECT id, matter_id, ip_asset_id, reference_number, docketing_event, event_type,
+                due_date, status, urgency, notes, completed_at, completed_by,
+                created_by, is_verified, verified_by, verified_at, created_at, updated_at
          FROM deadlines
          WHERE matter_id = ?
          ORDER BY due_date ASC, created_at ASC"
@@ -163,19 +175,29 @@ pub async fn create(
 ) -> anyhow::Result<Deadline> {
     let urgency = urgency_for(&input.due_date, "Pending");
     let event_type = input.event_type.as_deref().unwrap_or("Custom");
+    let reference = next_reference_number(pool).await?;
+
+    // Statutory deadlines are client-visible by default: the client is legally
+    // affected and must not be surprised. Procedural/Custom are the firm's own
+    // internal steps and stay private. Either is overridable per deadline.
+    let client_visible = i64::from(event_type == "Statutory");
 
     sqlx::query(
-        "INSERT INTO deadlines (id, matter_id, ip_asset_id, docketing_event, event_type, due_date, urgency, notes)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+        "INSERT INTO deadlines (id, matter_id, ip_asset_id, reference_number, docketing_event,
+                                event_type, due_date, urgency, notes, is_client_visible, created_by)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
     )
     .bind(id)
     .bind(&input.matter_id)
     .bind(&input.ip_asset_id)
+    .bind(&reference)
     .bind(&input.docketing_event)
     .bind(event_type)
     .bind(&input.due_date)
     .bind(urgency)
     .bind(&input.notes)
+    .bind(client_visible)
+    .bind(&input.created_by)
     .execute(pool)
     .await?;
 
@@ -279,6 +301,47 @@ pub async fn refresh_all_urgency(pool: &SqlitePool) -> anyhow::Result<u64> {
     Ok(updated)
 }
 
+/// Next docket reference in `P&P-DD-NNNN` form.
+///
+/// Sequential per firm, not per matter (spec §Business Rules), so the number is
+/// unique in correspondence. Shares the `sequences` table with matter and
+/// invoice IDs.
+pub async fn next_reference_number(pool: &SqlitePool) -> anyhow::Result<String> {
+    sqlx::query(
+        "INSERT INTO sequences (key, next_val) VALUES ('DD', 2)
+         ON CONFLICT(key) DO UPDATE SET next_val = next_val + 1",
+    )
+    .execute(pool)
+    .await?;
+
+    let next: i64 = sqlx::query_scalar("SELECT next_val FROM sequences WHERE key = 'DD'")
+        .fetch_one(pool)
+        .await?;
+
+    // next_val points at the *following* number, so the one just claimed is n-1.
+    Ok(format!("P&P-DD-{:04}", next - 1))
+}
+
+/// Statutory deadlines not yet checked by a second attorney, soonest first.
+pub async fn list_unverified(pool: &SqlitePool) -> anyhow::Result<Vec<DeadlineSummary>> {
+    let rows = sqlx::query_as::<_, DeadlineSummaryRow>(
+        "SELECT d.id, d.matter_id,
+                m.title AS matter_title, m.matter_type, c.name AS client_name,
+                d.docketing_event, d.event_type, d.due_date, d.status, d.urgency,
+                d.notes, d.updated_at
+         FROM deadlines d
+         JOIN matters m ON d.matter_id = m.id
+         JOIN clients c ON m.client_id  = c.id
+         WHERE d.is_verified = 0
+           AND d.event_type = 'Statutory'
+           AND d.status = 'Pending'
+         ORDER BY d.due_date ASC",
+    )
+    .fetch_all(pool)
+    .await?;
+    Ok(rows.into_iter().map(DeadlineSummary::from).collect())
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -318,7 +381,10 @@ mod tests {
         sqlx::query(
             "CREATE TABLE deadlines (
                 id TEXT PRIMARY KEY, matter_id TEXT NOT NULL, docketing_event TEXT NOT NULL,
-                ip_asset_id TEXT,
+                ip_asset_id TEXT, reference_number TEXT,
+                is_client_visible INTEGER NOT NULL DEFAULT 0,
+                created_by TEXT, is_verified INTEGER NOT NULL DEFAULT 0,
+                verified_by TEXT, verified_at DATETIME,
                 event_type TEXT NOT NULL DEFAULT 'Custom',
                 due_date DATE NOT NULL,
                 status TEXT NOT NULL DEFAULT 'Pending',
@@ -327,6 +393,10 @@ mod tests {
                 created_at DATETIME NOT NULL DEFAULT (datetime('now')),
                 updated_at DATETIME NOT NULL DEFAULT (datetime('now'))
             )"
+        ).execute(&pool).await.unwrap();
+
+        sqlx::query(
+            "CREATE TABLE sequences (key TEXT PRIMARY KEY, next_val INTEGER NOT NULL DEFAULT 1)"
         ).execute(&pool).await.unwrap();
 
         // Seed client + matter
@@ -363,6 +433,7 @@ mod tests {
         let input = CreateDeadlineInput {
             matter_id:       "M-001".into(),
             ip_asset_id:     None,
+            created_by:      None,
             docketing_event: "Examination Report Response".into(),
             event_type:      Some("Statutory".into()),
             due_date:        due.clone(),
@@ -378,6 +449,96 @@ mod tests {
         assert_eq!(fetched.event_type, "Statutory");
     }
 
+    /// Reference numbers are sequential per firm and citable in correspondence.
+    #[tokio::test]
+    async fn reference_numbers_are_sequential_and_padded() {
+        let pool = test_pool().await;
+        let due = (chrono::Utc::now() + chrono::Duration::days(30))
+            .format("%Y-%m-%d").to_string();
+
+        let mk = |n: &str| CreateDeadlineInput {
+            matter_id:       "M-001".into(),
+            ip_asset_id:     None,
+            created_by:      None,
+            docketing_event: n.to_string(),
+            event_type:      Some("Statutory".into()),
+            due_date:        due.clone(),
+            notes:           None,
+        };
+
+        let a = create(&pool, "R-1", &mk("First")).await.unwrap();
+        let b = create(&pool, "R-2", &mk("Second")).await.unwrap();
+        let c = create(&pool, "R-3", &mk("Third")).await.unwrap();
+
+        assert_eq!(a.reference_number.as_deref(), Some("P&P-DD-0001"));
+        assert_eq!(b.reference_number.as_deref(), Some("P&P-DD-0002"));
+        assert_eq!(c.reference_number.as_deref(), Some("P&P-DD-0003"));
+    }
+
+    /// Statutory deadlines are client-visible by default; others are not.
+    #[tokio::test]
+    async fn statutory_deadlines_default_to_client_visible() {
+        let pool = test_pool().await;
+        let due = (chrono::Utc::now() + chrono::Duration::days(30))
+            .format("%Y-%m-%d").to_string();
+
+        let mk = |t: &str| CreateDeadlineInput {
+            matter_id:       "M-001".into(),
+            ip_asset_id:     None,
+            created_by:      None,
+            docketing_event: "Event".into(),
+            event_type:      Some(t.to_string()),
+            due_date:        due.clone(),
+            notes:           None,
+        };
+
+        create(&pool, "V-stat", &mk("Statutory")).await.unwrap();
+        create(&pool, "V-proc", &mk("Procedural")).await.unwrap();
+
+        let stat: i64 = sqlx::query_scalar(
+            "SELECT is_client_visible FROM deadlines WHERE id = 'V-stat'")
+            .fetch_one(&pool).await.unwrap();
+        let proc_v: i64 = sqlx::query_scalar(
+            "SELECT is_client_visible FROM deadlines WHERE id = 'V-proc'")
+            .fetch_one(&pool).await.unwrap();
+
+        assert_eq!(stat, 1, "a client must not be surprised by a statutory date");
+        assert_eq!(proc_v, 0, "internal steps stay private");
+    }
+
+    /// The unverified list is the daily question dual verification exists for.
+    #[tokio::test]
+    async fn unverified_list_shows_only_open_statutory_deadlines() {
+        let pool = test_pool().await;
+        let due = (chrono::Utc::now() + chrono::Duration::days(30))
+            .format("%Y-%m-%d").to_string();
+
+        let mk = |t: &str| CreateDeadlineInput {
+            matter_id:       "M-001".into(),
+            ip_asset_id:     None,
+            created_by:      Some("user-kt".into()),
+            docketing_event: format!("{t} event"),
+            event_type:      Some(t.to_string()),
+            due_date:        due.clone(),
+            notes:           None,
+        };
+
+        create(&pool, "U-stat",  &mk("Statutory")).await.unwrap();
+        create(&pool, "U-proc",  &mk("Procedural")).await.unwrap();
+        create(&pool, "U-done",  &mk("Statutory")).await.unwrap();
+        sqlx::query("UPDATE deadlines SET status = 'Complete' WHERE id = 'U-done'")
+            .execute(&pool).await.unwrap();
+        create(&pool, "U-ok", &mk("Statutory")).await.unwrap();
+        sqlx::query("UPDATE deadlines SET is_verified = 1 WHERE id = 'U-ok'")
+            .execute(&pool).await.unwrap();
+
+        let unverified = list_unverified(&pool).await.unwrap();
+        let ids: Vec<&str> = unverified.iter().map(|d| d.id.as_str()).collect();
+
+        assert_eq!(ids, vec!["U-stat"],
+            "only open, unverified, statutory deadlines belong here; got {ids:?}");
+    }
+
     /// B02: a deadline can hang off a specific IP asset, and round-trips as such.
     #[tokio::test]
     async fn test_deadline_links_to_ip_asset() {
@@ -388,6 +549,7 @@ mod tests {
         let linked = CreateDeadlineInput {
             matter_id:       "M-001".into(),
             ip_asset_id:     Some("ip-001".into()),
+            created_by:      None,
             docketing_event: "Renewal — 10 year term".into(),
             event_type:      Some("Statutory".into()),
             due_date:        due.clone(),
@@ -404,6 +566,7 @@ mod tests {
         let unlinked = CreateDeadlineInput {
             matter_id:       "M-001".into(),
             ip_asset_id:     None,
+            created_by:      None,
             docketing_event: "Client call".into(),
             event_type:      None,
             due_date:        due,
@@ -425,6 +588,7 @@ mod tests {
         let input = CreateDeadlineInput {
             matter_id:       "M-001".into(),
             ip_asset_id:     None,
+            created_by:      None,
             docketing_event: "Filing".into(),
             event_type:      None,
             due_date:        due,
@@ -446,6 +610,7 @@ mod tests {
         let input = CreateDeadlineInput {
             matter_id:       "M-001".into(),
             ip_asset_id:     None,
+            created_by:      None,
             docketing_event: "Old filing".into(),
             event_type:      None,
             due_date:        overdue_date,

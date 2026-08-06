@@ -311,13 +311,7 @@ pub async fn update_firm_settings(
     input: UpdateFirmSettingsInput,
     state: tauri::State<'_, AppState>,
 ) -> Result<FirmSettings, String> {
-    // Check Partner role
-    let session = state.session.lock().await;
-    let role = session.as_ref().map(|s| s.role.as_str()).unwrap_or("");
-    if role != "Partner" && role != "Admin" {
-        return Err("Only Partners can update firm settings".into());
-    }
-    drop(session);
+    crate::rbac::require(&state, crate::rbac::Permission::EditFirmSettings).await?;
 
     let pool = state.db.lock().await;
     let r = bq::update_firm_settings(
@@ -434,6 +428,8 @@ pub async fn create_invoice(
     input: CreateInvoiceInput,
     state: tauri::State<'_, AppState>,
 ) -> Result<Invoice, String> {
+    crate::rbac::require(&state, crate::rbac::Permission::CreateInvoice).await?;
+
     let session = state.session.lock().await;
     let created_by = match session.as_ref() {
         Some(s) => s.user_id.clone(),

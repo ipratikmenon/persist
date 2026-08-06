@@ -18,6 +18,8 @@ pub struct Deadline {
     /// Set when the deadline belongs to a specific IP asset (B02); None for
     /// matter-level deadlines such as client meetings or internal reviews.
     pub ip_asset_id:     Option<String>,
+    /// P&P-DD-NNNN — citable in correspondence. Assigned at creation.
+    pub reference_number: Option<String>,
     pub docketing_event: String,
     pub event_type:      String,  // Statutory | Procedural | Custom
     pub due_date:        String,
@@ -26,6 +28,11 @@ pub struct Deadline {
     pub notes:           Option<String>,
     pub completed_at:    Option<String>,
     pub completed_by:    Option<String>,
+    // Dual verification (spec §2.12) — a second attorney confirms the date.
+    pub created_by:      Option<String>,
+    pub is_verified:     bool,
+    pub verified_by:     Option<String>,
+    pub verified_at:     Option<String>,
     pub created_at:      String,
     pub updated_at:      String,
 }
@@ -69,6 +76,10 @@ pub struct CreateDeadlineInput {
     pub matter_id:       String,
     pub ip_asset_id:     Option<String>,
     pub docketing_event: String,
+    /// Set by Keel from the session, never by Deck — dual verification is
+    /// meaningless if the author can be spoofed.
+    #[serde(skip_deserializing)]
+    pub created_by:      Option<String>,
     pub event_type:      Option<String>,
     pub due_date:        String,
     pub notes:           Option<String>,
@@ -219,9 +230,16 @@ pub async fn list_deadlines(
 
 #[tauri::command]
 pub async fn create_deadline(
-    input: CreateDeadlineInput,
+    mut input: CreateDeadlineInput,
     state: tauri::State<'_, AppState>,
 ) -> Result<Deadline, String> {
+    let session =
+        crate::rbac::require(&state, crate::rbac::Permission::CreateDeadline).await?;
+
+    // Authorship comes from the session, not the payload — otherwise dual
+    // verification could be defeated by lying about who entered the date.
+    input.created_by = Some(session.user_id);
+
     let db = state.db.lock().await;
     let id = Uuid::new_v4().to_string();
     queries::deadlines::create(&db, &id, &input)
@@ -278,4 +296,65 @@ pub async fn get_statutory_templates(
         _            => vec![],
     };
     Ok(templates)
+}
+
+// ---------------------------------------------------------------------------
+// Dual verification (spec §2.12)
+// ---------------------------------------------------------------------------
+
+/// Confirm a statutory date entered by someone else.
+///
+/// The control is only meaningful if the checker is a different person from the
+/// author, so Keel enforces that and never offers a bypass.
+#[tauri::command]
+pub async fn verify_deadline(
+    id: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<Deadline, String> {
+    let session =
+        crate::rbac::require(&state, crate::rbac::Permission::VerifyDeadline).await?;
+
+    let pool = { state.db.lock().await.clone() };
+
+    let existing = queries::deadlines::get_by_id(&pool, &id)
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("Deadline not found: {id}"))?;
+
+    if existing.is_verified {
+        return Err("This deadline is already verified".to_string());
+    }
+
+    // The whole point of the control.
+    if existing.created_by.as_deref() == Some(session.user_id.as_str()) {
+        return Err("Cannot verify your own deadline — a second attorney must check it".to_string());
+    }
+
+    sqlx::query(
+        "UPDATE deadlines
+         SET is_verified = 1, verified_by = ?, verified_at = datetime('now'),
+             updated_at = datetime('now')
+         WHERE id = ?",
+    )
+    .bind(&session.user_id)
+    .bind(&id)
+    .execute(&pool)
+    .await
+    .map_err(|e| e.to_string())?;
+
+    queries::deadlines::get_by_id(&pool, &id)
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "Deadline vanished after verification".to_string())
+}
+
+/// Statutory deadlines still awaiting a second pair of eyes.
+#[tauri::command]
+pub async fn list_unverified_deadlines(
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<DeadlineSummary>, String> {
+    let pool = { state.db.lock().await.clone() };
+    queries::deadlines::list_unverified(&pool)
+        .await
+        .map_err(|e| e.to_string())
 }

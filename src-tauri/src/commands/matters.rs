@@ -270,6 +270,8 @@ pub async fn close_matter(
     _reason: String,
     state: tauri::State<'_, AppState>,
 ) -> Result<Matter, String> {
+    crate::rbac::require(&state, crate::rbac::Permission::CloseMatter).await?;
+
     let db = state.db.lock().await;
     let current = queries::matters::get_by_id(&db, &id)
         .await
@@ -287,6 +289,8 @@ pub async fn archive_matter(
     id: String,
     state: tauri::State<'_, AppState>,
 ) -> Result<Matter, String> {
+    crate::rbac::require(&state, crate::rbac::Permission::ArchiveMatter).await?;
+
     let db = state.db.lock().await;
     let current = queries::matters::get_by_id(&db, &id)
         .await

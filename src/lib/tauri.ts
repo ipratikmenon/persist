@@ -114,6 +114,12 @@ export const keel = {
       invoke<void>('delete_deadline', { id }),
     getTemplates: (matterType: MatterType) =>
       invoke<StatutoryTemplate[]>('get_statutory_templates', { matterType }),
+    /** Second-attorney sign-off. Keel rejects verifying your own deadline. */
+    verify: (id: string) =>
+      invoke<Deadline>('verify_deadline', { id }),
+    /** Open statutory deadlines still awaiting a second pair of eyes. */
+    listUnverified: () =>
+      invoke<DeadlineSummary[]>('list_unverified_deadlines'),
   },
 
   // ---- IP Assets --------------------------------------------------------

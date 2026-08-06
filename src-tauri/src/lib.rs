@@ -10,6 +10,7 @@ mod services;
 mod storage;
 
 pub mod db;
+pub mod rbac;
 
 use services::keychain::Keychain;
 
@@ -185,6 +186,8 @@ pub fn run() {
             commands::deadlines::mark_deadline_complete,
             commands::deadlines::delete_deadline,
             commands::deadlines::get_statutory_templates,
+            commands::deadlines::verify_deadline,
+            commands::deadlines::list_unverified_deadlines,
             // --- IP assets (B02) ---
             commands::ip_assets::list_ip_assets,
             commands::ip_assets::get_ip_asset,

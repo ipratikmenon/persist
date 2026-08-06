@@ -35,3 +35,7 @@ files_latest/
 
 # Claude Code local settings
 .claude/settings.local.json
+
+# Screenshot harness artefacts (the harness itself is tracked)
+dist-screenshots
+screenshots/out

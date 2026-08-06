@@ -13,6 +13,8 @@ import { keel } from '@/lib/tauri';
 import { UrgencyBadge, DueDate } from '@/components/dockets/UrgencyBadge';
 import { IpAssetStatusBadge, IpAssetTypePill, ClassChips } from '@/components/dockets/IpAssetStatusBadge';
 import { IpAssetDrawer } from '@/components/dockets/IpAssetDrawer';
+import { CascadePreviewDrawer } from '@/components/dockets/CascadePreview';
+import { VerificationBadge, ReferenceChip } from '@/components/dockets/VerificationBadge';
 import { MatterStatusBadge, MatterTypePill } from '@/components/matters/MatterStatusBadge';
 import { colors, fonts, fontSizes, radius, shadows, spacing } from '@/design-system/tokens';
 import { transition, panelVariants } from '@/design-system/motion';
@@ -318,6 +320,7 @@ function TimelineRow({ deadline: d, onComplete }: TimelineRowProps) {
             )}
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: spacing[3], flexShrink: 0 }}>
+            {!isDone && <VerificationBadge deadline={d} />}
             {!isDone && <UrgencyBadge urgency={d.urgency as any} />}
             {isDone
               ? <span style={{ fontSize: fontSizes.label, color: colors.statusClear, fontFamily: fonts.ui }}>✓ {d.status}</span>
@@ -332,8 +335,9 @@ function TimelineRow({ deadline: d, onComplete }: TimelineRowProps) {
           </div>
         </div>
 
-        <div style={{ marginTop: 3 }}>
+        <div style={{ marginTop: 3, display: 'flex', alignItems: 'center', gap: spacing[3] }}>
           <DueDate dueDate={d.dueDate} urgency={isDone ? 'Normal' : d.urgency as any} />
+          <ReferenceChip reference={d.referenceNumber} />
         </div>
 
         {d.notes && (
@@ -379,6 +383,7 @@ export default function IPAssetRecord() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [assetDrawerOpen, setAssetDrawerOpen] = useState(false);
   const [editingAsset, setEditingAsset] = useState<IpAsset | null>(null);
+  const [cascadeAsset, setCascadeAsset] = useState<IpAsset | null>(null);
   /** null = show every deadline; an id = show only that asset's deadlines. */
   const [assetFilter, setAssetFilter] = useState<string | null>(null);
 
@@ -549,16 +554,29 @@ export default function IPAssetRecord() {
                         </div>
                       </div>
 
-                      <button
-                        onClick={e => { e.stopPropagation(); openEditAsset(a); }}
-                        style={{
-                          background: 'none', border: 'none', cursor: 'pointer', padding: 0,
-                          color: colors.textTertiary, fontFamily: fonts.ui,
-                          fontSize: fontSizes.label, flexShrink: 0,
-                        }}
-                      >
-                        Edit
-                      </button>
+                      <div style={{ display: 'flex', gap: spacing[3], flexShrink: 0 }}>
+                        <button
+                          onClick={e => { e.stopPropagation(); setCascadeAsset(a); }}
+                          title="Generate the statutory deadline chain for this asset"
+                          style={{
+                            background: 'none', border: 'none', cursor: 'pointer', padding: 0,
+                            color: colors.accentPrimary, fontFamily: fonts.ui,
+                            fontSize: fontSizes.label,
+                          }}
+                        >
+                          Generate chain
+                        </button>
+                        <button
+                          onClick={e => { e.stopPropagation(); openEditAsset(a); }}
+                          style={{
+                            background: 'none', border: 'none', cursor: 'pointer', padding: 0,
+                            color: colors.textTertiary, fontFamily: fonts.ui,
+                            fontSize: fontSizes.label,
+                          }}
+                        >
+                          Edit
+                        </button>
+                      </div>
                     </div>
 
                     <div style={{
@@ -635,6 +653,14 @@ export default function IPAssetRecord() {
         defaultAssetId={assetFilter}
         onClose={() => setDrawerOpen(false)}
         onAdded={load}
+      />
+
+      <CascadePreviewDrawer
+        open={cascadeAsset !== null}
+        matterId={matter.id}
+        asset={cascadeAsset}
+        onClose={() => setCascadeAsset(null)}
+        onGenerated={load}
       />
 
       <IpAssetDrawer

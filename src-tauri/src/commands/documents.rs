@@ -216,6 +216,8 @@ pub async fn delete_document(
     id: String,
     state: tauri::State<'_, AppState>,
 ) -> Result<(), String> {
+    crate::rbac::require(&state, crate::rbac::Permission::DeleteDocument).await?;
+
     let pool = state.db.lock().await;
     let vault_path = doc_queries::delete(&pool, &id)
         .await
