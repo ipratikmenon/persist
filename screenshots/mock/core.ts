@@ -91,25 +91,25 @@ const DEADLINES = [
   { id: 'd-1', matterId: 'P&P-2026-TM-0042', ipAssetId: 'ip-petal',
     referenceNumber: 'P&P-DD-0087', docketingEvent: 'Response to Examination Report',
     eventType: 'Statutory', dueDate: iso(3), status: 'Pending', urgency: 'Critical',
-    notes: 'Rule 45 — 30 days from date of notice.', completedAt: null, completedBy: null,
+    notes: 'Rule 45 — 30 days from date of notice.', completedAt: null, completedBy: null, isClientVisible: true,
     createdBy: 'user-kt', isVerified: false, verifiedBy: null, verifiedAt: null,
     createdAt: stamp(-27), updatedAt: stamp(-27) },
   { id: 'd-2', matterId: 'P&P-2026-TM-0042', ipAssetId: 'ip-petal',
     referenceNumber: 'P&P-DD-0088', docketingEvent: 'Internal: prepare Response to Examination Report',
     eventType: 'Procedural', dueDate: iso(-4), status: 'Complete', urgency: 'Normal',
-    notes: '7 days before the statutory date.', completedAt: stamp(-5), completedBy: 'user-kt',
+    notes: '7 days before the statutory date.', completedAt: stamp(-5), completedBy: 'user-kt', isClientVisible: false,
     createdBy: 'user-kt', isVerified: false, verifiedBy: null, verifiedAt: null,
     createdAt: stamp(-27), updatedAt: stamp(-5) },
   { id: 'd-3', matterId: 'P&P-2026-TM-0042', ipAssetId: 'ip-petal',
     referenceNumber: 'P&P-DD-0091', docketingEvent: 'Opposition period expires',
     eventType: 'Statutory', dueDate: iso(112), status: 'Pending', urgency: 'Normal',
-    notes: 's.21 — 4 months from advertisement.', completedAt: null, completedBy: null,
+    notes: 's.21 — 4 months from advertisement.', completedAt: null, completedBy: null, isClientVisible: true,
     createdBy: 'user-kt', isVerified: true, verifiedBy: 'user-slm', verifiedAt: stamp(-20),
     createdAt: stamp(-25), updatedAt: stamp(-20) },
   { id: 'd-4', matterId: 'P&P-2026-TM-0042', ipAssetId: 'ip-petal',
     referenceNumber: 'P&P-DD-0092', docketingEvent: 'Trademark renewal due (10-year term)',
     eventType: 'Statutory', dueDate: iso(3400), status: 'Pending', urgency: 'Normal',
-    notes: null, completedAt: null, completedBy: null,
+    notes: null, completedAt: null, completedBy: null, isClientVisible: true,
     createdBy: 'user-slm', isVerified: true, verifiedBy: 'user-kt', verifiedAt: stamp(-24),
     createdAt: stamp(-25), updatedAt: stamp(-24) },
 ];
@@ -317,7 +317,22 @@ const HANDLERS: Record<string, (args: any) => unknown> = {
   get_unbilled_summary: () => ({ matterId: MATTER.id, matterTitle: MATTER.title,
     totalHours: 3.5, totalAmount: 18_000, entryCount: 2 }),
 
-  sync_status: () => ({ lastSyncedAt: null, isSyncing: false, pendingChanges: 0 }),
+  sync_status: () => ({
+    lastSyncedAt: null, isSyncing: false, pendingChanges: 3,
+    isEnabled: false, serverUrl: null, lastError: null,
+  }),
+
+  list_portal_users: (args: any) => [
+    { id: 'pu-1', clientId: args?.clientId ?? 'c-petal', fullName: 'Anita Rao',
+      email: 'anita@petalveda.in', phone: '+91 98100 11223', status: 'Active',
+      invitedBy: 'user-slm', invitedAt: stamp(-120), lastLoginAt: stamp(-2) },
+    { id: 'pu-2', clientId: args?.clientId ?? 'c-petal', fullName: 'Ravi Menon',
+      email: 'ravi@petalveda.in', phone: null, status: 'Invited',
+      invitedBy: 'user-slm', invitedAt: stamp(-3), lastLoginAt: null },
+    { id: 'pu-3', clientId: args?.clientId ?? 'c-petal', fullName: 'Former Secretary',
+      email: 'old@petalveda.in', phone: null, status: 'Revoked',
+      invitedBy: 'user-kt', invitedAt: stamp(-300), lastLoginAt: stamp(-95) },
+  ],
 };
 
 export async function invoke<T>(cmd: string, args?: unknown): Promise<T> {

@@ -61,6 +61,7 @@ impl From<DeadlineRow> for Deadline {
             notes:           r.notes,
             completed_at:    r.completed_at,
             completed_by:    r.completed_by,
+            is_client_visible: r.is_client_visible != 0,
             created_by:      r.created_by,
             is_verified:     r.is_verified != 0,
             verified_by:     r.verified_by,

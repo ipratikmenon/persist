@@ -28,6 +28,8 @@ pub struct Deadline {
     pub notes:           Option<String>,
     pub completed_at:    Option<String>,
     pub completed_by:    Option<String>,
+    /// 1 = shown in the client portal. Statutory deadlines default to visible.
+    pub is_client_visible: bool,
     // Dual verification (spec §2.12) — a second attorney confirms the date.
     pub created_by:      Option<String>,
     pub is_verified:     bool,

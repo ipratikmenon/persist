@@ -10,6 +10,8 @@ import { motion, AnimatePresence } from 'motion/react';
 import { useReducedMotion } from 'motion/react';
 import type { Deadline, IpAsset, IpAssetType, Matter, MatterType, StatutoryTemplate } from '@/lib/ipc-types';
 import { keel } from '@/lib/tauri';
+import { useAuthStore } from '@/stores/auth';
+import { can } from '@/lib/permissions';
 import { UrgencyBadge, DueDate } from '@/components/dockets/UrgencyBadge';
 import { IpAssetStatusBadge, IpAssetTypePill, ClassChips } from '@/components/dockets/IpAssetStatusBadge';
 import { IpAssetDrawer } from '@/components/dockets/IpAssetDrawer';
@@ -251,11 +253,49 @@ function AddDeadlineDrawer({
 interface TimelineRowProps {
   deadline: Deadline;
   onComplete: (id: string) => void;
+  /** Reload after a change Keel owns (verification). */
+  onChanged: () => void;
 }
 
-function TimelineRow({ deadline: d, onComplete }: TimelineRowProps) {
+function TimelineRow({ deadline: d, onComplete, onChanged }: TimelineRowProps) {
   const shouldReduce = useReducedMotion();
   const [completing, setCompleting] = useState(false);
+  const [verifying, setVerifying]   = useState(false);
+  const [visToggling, setVisToggling] = useState(false);
+  const [clientVisible, setClientVisible] = useState(d.isClientVisible);
+
+  const role = useAuthStore(s => s.session?.role);
+  const canVerify = can(role, 'VerifyDeadline');
+  const canEdit   = can(role, 'EditMatter');
+
+  /**
+   * Second-attorney sign-off. Keel refuses when the verifier is the person who
+   * entered the date, so the error is surfaced verbatim rather than guessed at.
+   */
+  const handleVerify = async () => {
+    setVerifying(true);
+    try {
+      await keel.deadlines.verify(d.id);
+      onChanged();
+    } catch (e: unknown) {
+      window.alert(e instanceof Error ? e.message : String(e));
+    } finally {
+      setVerifying(false);
+    }
+  };
+
+  /** Show or hide this deadline in the client portal. */
+  const toggleVisible = async () => {
+    setVisToggling(true);
+    try {
+      await keel.sharing.setDeadlineClientVisible(d.id, !clientVisible);
+      setClientVisible(!clientVisible);
+    } catch (e: unknown) {
+      window.alert(e instanceof Error ? e.message : String(e));
+    } finally {
+      setVisToggling(false);
+    }
+  };
 
   const handleComplete = async () => {
     setCompleting(true);
@@ -321,6 +361,22 @@ function TimelineRow({ deadline: d, onComplete }: TimelineRowProps) {
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: spacing[3], flexShrink: 0 }}>
             {!isDone && <VerificationBadge deadline={d} />}
+            {!isDone && canVerify && d.eventType === 'Statutory' && !d.isVerified && (
+              <motion.button
+                onClick={handleVerify}
+                disabled={verifying}
+                title="Confirm this date. Keel refuses if you entered it yourself."
+                whileHover={!shouldReduce ? { opacity: 0.8 } : undefined}
+                style={{
+                  padding: '3px 10px', borderRadius: radius.button,
+                  border: `0.5px solid ${colors.accentPrimary}`, background: 'transparent',
+                  color: colors.accentPrimary, fontSize: fontSizes.label,
+                  fontFamily: fonts.ui, cursor: verifying ? 'not-allowed' : 'pointer',
+                }}
+              >
+                {verifying ? '…' : 'Verify'}
+              </motion.button>
+            )}
             {!isDone && <UrgencyBadge urgency={d.urgency as any} />}
             {isDone
               ? <span style={{ fontSize: fontSizes.label, color: colors.statusClear, fontFamily: fonts.ui }}>✓ {d.status}</span>
@@ -338,6 +394,23 @@ function TimelineRow({ deadline: d, onComplete }: TimelineRowProps) {
         <div style={{ marginTop: 3, display: 'flex', alignItems: 'center', gap: spacing[3] }}>
           <DueDate dueDate={d.dueDate} urgency={isDone ? 'Normal' : d.urgency as any} />
           <ReferenceChip reference={d.referenceNumber} />
+          {canEdit && (
+            <button
+              onClick={toggleVisible}
+              disabled={visToggling}
+              title={clientVisible
+                ? 'Visible in the client portal — click to hide'
+                : 'Private to the firm — click to show the client'}
+              style={{
+                background: 'none', border: 'none', padding: 0,
+                cursor: visToggling ? 'not-allowed' : 'pointer',
+                fontFamily: fonts.ui, fontSize: 11,
+                color: clientVisible ? colors.accentPrimary : colors.textTertiary,
+              }}
+            >
+              {visToggling ? '…' : clientVisible ? '● client' : '○ private'}
+            </button>
+          )}
         </div>
 
         {d.notes && (
@@ -629,7 +702,7 @@ export default function IPAssetRecord() {
         ) : (
           <>
             {pending.map(d => (
-              <TimelineRow key={d.id} deadline={d} onComplete={handleComplete} />
+              <TimelineRow key={d.id} deadline={d} onComplete={handleComplete} onChanged={load} />
             ))}
             {done.length > 0 && (
               <>
@@ -637,7 +710,7 @@ export default function IPAssetRecord() {
                   Completed
                 </div>
                 {done.map(d => (
-                  <TimelineRow key={d.id} deadline={d} onComplete={handleComplete} />
+                  <TimelineRow key={d.id} deadline={d} onComplete={handleComplete} onChanged={load} />
                 ))}
               </>
             )}

@@ -13,6 +13,8 @@ import { save as saveDialog } from '@tauri-apps/plugin-dialog';
 import { writeFile } from '@tauri-apps/plugin-fs';
 import type { DocumentCategory, DocumentMeta, MatterSummary } from '@/lib/ipc-types';
 import { keel } from '@/lib/tauri';
+import { useAuthStore } from '@/stores/auth';
+import { can } from '@/lib/permissions';
 import { colors, fonts, fontSizes, radius, spacing, shadows } from '@/design-system/tokens';
 import { transition, stagger } from '@/design-system/motion';
 import { AnimatedUploadDrawer } from './UploadDrawer';
@@ -97,6 +99,34 @@ function DocRow({ doc, onDelete, onMatterClick, matterTitle }: DocRowProps) {
   const [downloading, setDownloading] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [sharing, setSharing] = useState(false);
+  const [shared, setShared] = useState(doc.isSharedWithClient);
+
+  const role = useAuthStore(s => s.session?.role);
+  const canShare  = can(role, 'ShareDocumentWithClient');
+  const canDelete = can(role, 'DeleteDocument');
+
+  /**
+   * Show or withdraw a document in the client portal.
+   * Un-sharing queues a tombstone in Keel, so the mirror row and the stored
+   * object are removed — not merely left un-refreshed.
+   */
+  const toggleShared = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setSharing(true);
+    try {
+      if (shared) {
+        await keel.sharing.unshareDocument(doc.id);
+      } else {
+        await keel.sharing.shareDocument(doc.id);
+      }
+      setShared(!shared);
+    } catch (err: unknown) {
+      window.alert(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSharing(false);
+    }
+  };
 
   const handleDownload = async (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -243,7 +273,7 @@ function DocRow({ doc, onDelete, onMatterClick, matterTitle }: DocRowProps) {
 
       {/* Shared badge */}
       <td style={{ padding: `${spacing[3]} ${spacing[4]}`, verticalAlign: 'middle', whiteSpace: 'nowrap' }}>
-        {doc.isSharedWithClient && (
+        {shared && (
           <span style={{
             fontSize: 10,
             fontFamily: fonts.mono,
@@ -287,13 +317,30 @@ function DocRow({ doc, onDelete, onMatterClick, matterTitle }: DocRowProps) {
               >
                 {exporting ? '…' : '↓ Client copy'}
               </button>
-              <button
-                onClick={handleDelete}
-                disabled={deleting}
-                style={actionBtnStyle(colors.statusUrgent, deleting)}
-              >
-                {deleting ? '…' : 'Delete'}
-              </button>
+              {canShare && (
+                <button
+                  onClick={toggleShared}
+                  disabled={sharing}
+                  title={shared
+                    ? 'Withdraw from the client portal'
+                    : 'Show this document in the client portal'}
+                  style={actionBtnStyle(
+                    shared ? colors.textSecondary : colors.statusClear,
+                    sharing,
+                  )}
+                >
+                  {sharing ? '…' : shared ? 'Unshare' : 'Share'}
+                </button>
+              )}
+              {canDelete && (
+                <button
+                  onClick={handleDelete}
+                  disabled={deleting}
+                  style={actionBtnStyle(colors.statusUrgent, deleting)}
+                >
+                  {deleting ? '…' : 'Delete'}
+                </button>
+              )}
             </motion.div>
           )}
         </AnimatePresence>

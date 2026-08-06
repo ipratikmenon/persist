@@ -12,8 +12,8 @@
 
 **Phase:** 2 — Billing & Client Portal
 **Week:** 3
-**Active module:** M5 Step 3a (sync engine) COMPLETE except the transport. Next: Step 3b (sync server) — the transport that drains the outbox.
-**Last session completed:** S16 — 2026-08-06 — Sync engine: allow-list projections, outbox, sync state, 11 portal/sharing commands. cargo test 146/146, pnpm build PASS.
+**Active module:** M5 desktop surface COMPLETE. Next: Step 3b (sync server + transport).
+**Last session completed:** S17 — 2026-08-06 — Deck surface for M5: Client Portal page, share toggles, verify action, role-gated UI. cargo test 146/146, pnpm build PASS.
 **Last updated:** 2026-08-06
 
 ---
@@ -22,29 +22,30 @@
 
 > Fill this section at the start of a session. Clear it when done.
 
-**Nothing in progress.** S16 built M5 Step 3a — everything that decides *what*
-would sync and *whether* syncing is on. On `claude/new-session-dbqe5o`,
-**nothing pushed to main**.
+**Nothing in progress.** S17 made everything from the last four sprints
+reachable by an attorney. On `claude/new-session-dbqe5o`, **nothing pushed to
+main**.
 
-  ✅ `services/sync_engine/projection.rs` — allow-list projections for matters,
-     deadlines, IP assets and invoices. Tests serialise each projection to JSON
-     and assert sensitive values are absent from the wire bytes.
-  ✅ `services/sync_engine/mod.rs` — outbox (collapsing enqueue, Delete
-     supersedes Upsert), retry/backoff, sync state.
-  ✅ `commands/sync.rs` — 11 commands replacing the stub: status, enable/
-     configure, portal user invite/list/revoke, share/unshare, deadline
-     visibility, shared-document listing.
+  ✅ `pages/Portal/PortalHome.tsx` — Client access (invite/list/revoke portal
+     users per client) and Sync (server URL, on/off, queued count, last error).
+  ✅ `lib/permissions.ts` — mirrors `rbac.rs` so an attorney is never shown a
+     button that will refuse them. **UX only; Keel remains the enforcer.**
+  ✅ Share/unshare toggle on document rows; the SHARED badge is now live state.
+  ✅ Verify action + client-visibility toggle on the docket timeline — closes
+     the two loops opened in S15 (a badge with no action) and S16 (commands
+     with no caller).
+  ✅ Nav: added **Renewals** (built in S14 but only reachable by URL) and
+     **Portal**. Fixed active-state matching — `/dockets` was lighting up on
+     `/dockets/renewals`.
 
-⚠️ **The transport is not built.** `trigger_sync` reports how many changes are
-queued and returns an explicit error rather than pretending to have sent them.
-Nothing leaves the machine yet.
+⚠️ **The transport is still not built.** Sync can be configured and enabled, but
+`trigger_sync` errors explicitly rather than sending. Nothing leaves the machine.
 
-⚠️ **Still awaiting your review:** the M5 spec. §5.2/§5.3 are now implemented as
-literal field lists in `projection.rs` — a review change there is a small edit,
-not a rearchitecture.
+⚠️ **Still awaiting your review:** the M5 spec.
 
-Next: **M5 Step 3b** — the Axum sync server and the push/pull transport, which is
-also where the remaining outbox write-path wiring belongs (see below).
+Next: **M5 Step 3b** — the Axum sync server and push/pull transport, plus the
+remaining outbox write-path wiring (matters, deadlines, invoices, payments do
+not enqueue yet — see the S16 log).
 
 ---
 
@@ -413,6 +414,8 @@ bets: M35, M36, M38.
 | Aug 2026 | A Delete in the outbox supersedes a pending Upsert | Otherwise an upsert queued before an un-share resurrects the row in the mirror. Re-queuing the same op collapses, so five edits before one sync are one push |
 | Aug 2026 | Enabling sync without a server URL is refused | A firm that believes sync is on and is wrong is worse off than one that sees an error |
 | Aug 2026 | Remaining outbox write-path wiring deferred to Step 3b | Enqueuing from fifteen call sites with nothing to drain them is untestable code written a sprint early. It lands with the transport so both can be tested together |
+| Aug 2026 | Deck permission gating duplicates rbac.rs by hand | Per the auth spec, Deck gating is UX convenience and Keel is the enforcer. A divergence between the two degrades to "button shown, command refused" — never to a leak — so a hand-kept copy is an acceptable cost for not inventing an IPC round trip per button |
+| Aug 2026 | Nav active state matches exact-or-child, not prefix | `/dockets` was lighting up on `/dockets/renewals`, so two items appeared active at once |
 
 ---
 
@@ -449,6 +452,7 @@ HETZNER_SYNC_URL=       # Sync server URL (Phase 2 M5)
 | Apr 17 2026 | S07: Phase 2 M4 Billing — spec written, migration 0006_billing.sql (5 tables), queries/billing.rs (5 tests), commands/billing.rs (13 cmds), lib.rs billing commands registered, tauri.ts billing wrappers, BillingHome/TimeTracker/InvoiceList/FirmSettingsPanel. Also: new spec files placed in specs/ (module-02-docketing, auth-rbac, hpas-integration, module-03-documents updated), PROGRESS.md reconciled | specs/*.md, 0006_billing.sql, queries/billing.rs, commands/billing.rs, pages/Billing/*.tsx | cargo test: 30/30, pnpm build: PASS (467 modules, 457kb) |
 | Apr 19 2026 | S08: Phase 2 M4 Billing UI complete — InvoiceDetail.tsx (back/actions/line items/GST panel/payment modal), InvoiceComposer.tsx (client→matter→entries→fixed-fee→GST type→live totals→create), InvoiceList wired (row click→detail, New Invoice→composer), latex.rs real impl (finds pdflatex, tempdir compile, 3 tests), invoice.tex GST-compliant template, client lookup added to generate_invoice_pdf, tempfile moved to [dependencies] | pages/Billing/InvoiceDetail.tsx, InvoiceComposer.tsx, InvoiceList.tsx, services/latex.rs, storage/templates/invoice.tex, commands/billing.rs, Cargo.toml | cargo test: 33/33, pnpm build: PASS (469 modules, 482kb) |
 | Jul 19 2026 | S09: Expansion roadmap (planning only, no code) — researched adalat.ai + visiocyber.ai; wrote specs/expansion-roadmap.md defining Track A Courtroom Intelligence (M25 transcription, M26 hearings/cause lists, M27 doc digitization, M28 research/summarization, M29 WhatsApp chatbot) and Track B Startup Legal SaaS (M30 Startup Legal OS, M31 DP Audit Engine → Phase 2.5, M32 Compliance & AI Governance, M33 Assessments); added Phases 2.5/8/9 to TASKS.md; 4 architecture decisions logged | specs/expansion-roadmap.md (new), TASKS.md, PROGRESS.md, SESSION-LOG/2026-07-19-S09-expansion-roadmap.md | No code changed — tests unaffected (33/33 as of S08) |
+| Aug 6 2026 | S17: Deck surface for M5. `pages/Portal/PortalHome.tsx` (Client access + Sync tabs), `lib/permissions.ts` mirroring rbac.rs for UI gating, share/unshare toggle on document rows with live SHARED badge, verify action + client-visibility toggle on the docket timeline, nav gains Renewals and Portal with fixed active-state matching. Exposed `is_client_visible` on the Deadline IPC type (row had it, wire type did not). Screenshot harness extended to 12 views | src/pages/Portal/PortalHome.tsx, src/lib/permissions.ts, src/pages/Documents/DocumentList.tsx, src/pages/Dockets/IPAssetRecord.tsx, src/components/shell/AppShell.tsx, src/App.tsx, src/lib/ipc-types.ts, src-tauri/src/commands/deadlines.rs, src-tauri/src/db/queries/deadlines.rs, screenshots/* | cargo test: 146/146, pnpm build: PASS |
 | Aug 6 2026 | S16: M5 Step 3a — sync engine. `services/sync_engine/projection.rs`: MatterPublic/DeadlinePublic/IpAssetPublic/InvoicePublic, plain functions (not From), `Withheld` for drafts and non-visible deadlines, money rounded to 2dp; 12 tests that serialise to JSON and assert sensitive values are absent, plus a guard test that fails if a time-entry projection is ever added. `services/sync_engine/mod.rs`: outbox with collapsing enqueue and Delete-supersedes-Upsert, retry/backoff capped at 1h, sync state with enable-requires-URL; 11 tests. `commands/sync.rs` rewritten: 11 commands. Also added `is_client_visible` to DeadlineRow (column existed since 0009 but was never selected) | services/sync_engine/{mod,projection}.rs, commands/sync.rs, db/queries/deadlines.rs, services/mod.rs, lib.rs, src/lib/{ipc-types,tauri}.ts, src/stores/sync.ts | cargo test: 146/146 (was 122), pnpm build: PASS |
 | Aug 6 2026 | S15: Three parallel sprints + screenshot harness. **RBAC:** `src-tauri/src/rbac.rs` (Permission enum, rank table, `require` guard, 6 tests); guards on close/archive matter, delete_document, create_invoice, update_firm_settings, create/verify deadline; replaced the ad-hoc Partner check in billing. **Dual verification:** `0011_verification.sql` (created_by, reference_number, is_verified, verified_by/at, docket_errors), `verify_deadline` + `list_unverified_deadlines`, P&P-DD-NNNN generator, statutory-default client visibility, 3 new query tests. **Cascade UI:** `CascadePreview.tsx`, `VerificationBadge.tsx` + `ReferenceChip`, wired into IPAssetRecord (Generate chain action, badges + refs on timeline rows); fixed `humanise` not splitting the TM acronym. **Screenshots:** `screenshots/{mock,capture.mjs}`, `vite.config.screenshots.ts`, 10 captured views | src-tauri/src/rbac.rs, 0011_verification.sql, commands/{deadlines,matters,billing,documents}.rs, db/queries/deadlines.rs, lib.rs, src/components/dockets/{CascadePreview,VerificationBadge}.tsx, src/pages/Dockets/IPAssetRecord.tsx, src/lib/{ipc-types,tauri}.ts, screenshots/*, vite.config.screenshots.ts, .gitignore | cargo test: 122/122 (was 113), pnpm build: PASS |
 | Aug 5 2026 | S14: Two sprints. **M5 Step 2:** `0009_portal_sync.sql` (is_client_visible + statutory backfill, portal_users, sync_outbox, client_uploads, sync_state), `server/migrations/0001_mirror.sql` (mirror.* 9 tables + inbound.* 3), `0002_rls.sql` (3 roles, FORCE RLS, WITH CHECK), `server/tests/rls_test.sql` + `scripts/test-rls.sh` (10 assertions, negative-control verified), `server/SCHEMA.md`. **Cascade + abandonment:** `0010_cascade.sql` (cascade_templates w/ 7 seeded Indian templates, deadline_escalations, deadlines rebuilt for status Missed), `services/cascade_engine.rs` (14 tests), `services/abandonment_watcher.rs` (10 tests), `commands/cascade.rs` (5 cmds), `list_upcoming_renewals`, `RenewalDashboard.tsx` | 0009/0010 migrations, server/{migrations,tests,scripts,SCHEMA.md}, services/{cascade_engine,abandonment_watcher}.rs, commands/{cascade,ip_assets}.rs, db/{mod.rs,queries/ip_assets.rs}, lib.rs, SCHEMA.md, src/pages/Dockets/RenewalDashboard.tsx, src/lib/{ipc-types,tauri}.ts, src/App.tsx | cargo test: 113/113 (was 86), RLS gate: 10/10, pnpm build: PASS (474 modules, 506kb) |

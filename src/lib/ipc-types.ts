@@ -201,6 +201,8 @@ export interface Deadline {
   notes: string | null;
   completedAt: string | null;
   completedBy: string | null;
+  /** Shown in the client portal. Statutory deadlines default to visible. */
+  isClientVisible: boolean;
   /** Who entered the date. Dual verification requires a different verifier. */
   createdBy: string | null;
   isVerified: boolean;

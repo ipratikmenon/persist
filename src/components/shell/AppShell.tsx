@@ -9,9 +9,11 @@ import { useAuthStore } from '@/stores/auth';
 const NAV_ITEMS = [
   { path: '/matters',          label: 'Matters'   },
   { path: '/dockets',          label: 'Dockets'   },
+  { path: '/dockets/renewals', label: 'Renewals'  },
   { path: '/dockets/pipeline', label: 'Pipeline'  },
   { path: '/documents',        label: 'Documents' },
-  { path: '/billing',          label: 'Billing' },
+  { path: '/billing',          label: 'Billing'   },
+  { path: '/portal',           label: 'Portal'    },
 ] as const;
 
 // Initials from full name — "Sree Lakshmi Menon" → "SLM"
@@ -85,7 +87,10 @@ export function AppShell({ children }: AppShellProps) {
         {/* Navigation */}
         <nav style={{ flex: 1, padding: '10px 0', overflowY: 'auto' }}>
           {NAV_ITEMS.map((item) => {
-            const isActive = location.pathname.startsWith(item.path);
+            // Exact match, or a child route — but never a sibling that merely
+            // shares a prefix ('/dockets' must not light up on '/dockets/renewals').
+            const isActive = location.pathname === item.path
+              || location.pathname.startsWith(`${item.path}/`);
             return (
               <motion.button
                 key={item.path}

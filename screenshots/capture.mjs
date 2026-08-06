@@ -95,6 +95,15 @@ await shot('09-documents', '/documents', {
 });
 await shot('10-billing', '/billing');
 
+// Client Portal — the desktop side of M5.
+await shot('11-portal-client-access', '/portal');
+await shot('12-portal-sync', '/portal', {
+  setup: async (p) => {
+    await p.getByRole('button', { name: 'Sync' }).click();
+    await p.waitForTimeout(400);
+  },
+});
+
 await browser.close();
 server.close();
 console.log(`\nWrote ${fs.readdirSync(OUT).length} screenshots to screenshots/out/`);

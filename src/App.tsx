@@ -9,6 +9,7 @@ import PipelineBoard from '@/pages/Dockets/PipelineBoard';
 import RenewalDashboard from '@/pages/Dockets/RenewalDashboard';
 import DocumentList from '@/pages/Documents/DocumentList';
 import BillingHome from '@/pages/Billing/BillingHome';
+import PortalHome from '@/pages/Portal/PortalHome';
 import LoginScreen from '@/pages/Auth/LoginScreen';
 import { useAuthStore } from '@/stores/auth';
 import { keel } from '@/lib/tauri';
@@ -166,6 +167,9 @@ export default function App() {
 
                 {/* Phase 2 M4 — Billing */}
                 <Route path="/billing" element={<BillingHome />} />
+
+                {/* Phase 2 M5 — Client Portal */}
+                <Route path="/portal" element={<PortalHome />} />
 
                 <Route path="*" element={<Navigate to="/matters" replace />} />
               </Routes>
