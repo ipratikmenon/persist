@@ -3,6 +3,7 @@
 // All monetary values in INR. GST calculated here — never in Deck.
 
 use crate::AppState;
+use crate::services::sync_engine::{self, EntityType, Op};
 use crate::db::queries::billing as bq;
 use uuid::Uuid;
 
@@ -557,6 +558,21 @@ pub async fn update_invoice_status(
 
     let row = bq::update_invoice_status(&pool, &id, &status)
         .await.map_err(|e| e.to_string())?;
+
+    // Draft invoices are withheld at projection, so only the transitions that
+    // change what the client can see are queued: issuing one publishes it,
+    // cancelling an already-issued one withdraws it. Draft → Cancelled never
+    // reached the portal and needs no tombstone.
+    match (current.status.as_str(), status.as_str()) {
+        (_,       "Sent")      => {
+            sync_engine::note_change(&pool, EntityType::Invoice, &id, Op::Upsert).await;
+        }
+        ("Sent",  "Cancelled") => {
+            sync_engine::note_change(&pool, EntityType::Invoice, &id, Op::Delete).await;
+        }
+        _ => {}
+    }
+
     Ok(row_to_invoice(row))
 }
 
@@ -582,6 +598,11 @@ pub async fn record_payment(
         &input.method, input.reference.as_deref(), input.notes.as_deref(),
         &recorded_by,
     ).await.map_err(|e| e.to_string())?;
+
+    // The payment itself has no projection yet; what the client sees change is
+    // the invoice's amount_paid, so that is what gets queued.
+    sync_engine::note_change(&pool, EntityType::Invoice, &input.invoice_id, Op::Upsert).await;
+
     Ok(row_to_payment(row))
 }
 

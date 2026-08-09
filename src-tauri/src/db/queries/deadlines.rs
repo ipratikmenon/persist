@@ -305,6 +305,21 @@ pub async fn refresh_all_urgency(pool: &SqlitePool) -> anyhow::Result<u64> {
     Ok(updated)
 }
 
+/// The raw row, for the sync projection.
+pub async fn get_row(pool: &SqlitePool, id: &str) -> anyhow::Result<Option<DeadlineRow>> {
+    let row = sqlx::query_as::<_, DeadlineRow>(
+        "SELECT id, matter_id, ip_asset_id, reference_number, docketing_event, event_type,
+                due_date, status, urgency, notes, completed_at, completed_by,
+                is_client_visible, created_by, is_verified, verified_by, verified_at,
+                created_at, updated_at
+         FROM deadlines WHERE id = ?",
+    )
+    .bind(id)
+    .fetch_optional(pool)
+    .await?;
+    Ok(row)
+}
+
 /// Next docket reference in `P&P-DD-NNNN` form.
 ///
 /// Sequential per firm, not per matter (spec §Business Rules), so the number is

@@ -212,11 +212,14 @@ export const keel = {
   // ---- Sync + client portal (M5) ----------------------------------------
   sync: {
     status: () => invoke<SyncStatus>('sync_status'),
-    /** Errors while the transport is unbuilt (Step 3b) or sync is off. */
+    /** Pushes the outbox, then pulls anything the client sent. Errors only if
+     *  sync is off or unconfigured; a failed leg comes back in `lastError`. */
     trigger: () => invoke<SyncStatus>('trigger_sync'),
     /** Refused by Keel unless a server URL is configured. */
     setEnabled: (enabled: boolean) => invoke<SyncStatus>('set_sync_enabled', { enabled }),
     setServer: (url: string) => invoke<SyncStatus>('set_sync_server', { url }),
+    /** Stored in the OS keychain, never in SQLite. Empty string clears it. */
+    setToken: (token: string) => invoke<SyncStatus>('set_sync_token', { token }),
   },
 
   portalUsers: {

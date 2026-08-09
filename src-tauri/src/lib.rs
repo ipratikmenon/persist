@@ -6,8 +6,11 @@ use bcrypt;
 
 mod commands;
 mod config;
-mod services;
 mod storage;
+
+/// Public so tests/sync_e2e.rs can drive the transport against a live server.
+/// Nothing outside the crate links against Keel in production.
+pub mod services;
 
 pub mod db;
 pub mod rbac;
@@ -235,6 +238,7 @@ pub fn run() {
             commands::sync::trigger_sync,
             commands::sync::set_sync_enabled,
             commands::sync::set_sync_server,
+            commands::sync::set_sync_token,
             commands::sync::invite_portal_user,
             commands::sync::list_portal_users,
             commands::sync::revoke_portal_user,

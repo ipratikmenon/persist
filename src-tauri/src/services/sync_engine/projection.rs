@@ -27,11 +27,24 @@
 use crate::db::queries::billing::InvoiceRow;
 use crate::db::queries::deadlines::DeadlineRow;
 use crate::db::queries::ip_assets::IpAssetRow;
-use crate::db::queries::matters::MatterRow;
+use crate::db::queries::matters::{ClientRow, MatterRow};
 
 // ---------------------------------------------------------------------------
 // Wire types — exactly what leaves the machine
 // ---------------------------------------------------------------------------
+
+/// The client itself. Everything else in the mirror hangs off this row, so it
+/// must be projected first — a matter for a client the mirror has never seen is
+/// refused by the foreign key, not silently accepted.
+///
+/// Only id and name. gstin, pan, address, phone, email and notes stay on the
+/// desktop: the portal has no use for them and they are commercially sensitive.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ClientPublic {
+    pub id:   String,
+    pub name: String,
+}
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -203,6 +216,13 @@ pub fn project_ip_asset(row: &IpAssetRow, client_id: &str) -> IpAssetPublic {
 /// must not stop a sync batch.
 fn parse_classes(raw: &str) -> Vec<i64> {
     serde_json::from_str::<Vec<i64>>(raw).unwrap_or_default()
+}
+
+/// Project a client. Nothing is withheld: a client the firm has invited to the
+/// portal needs a row, and the only two fields carried are the two the mirror
+/// declares.
+pub fn project_client(row: &ClientRow) -> ClientPublic {
+    ClientPublic { id: row.id.clone(), name: row.name.clone() }
 }
 
 /// Project an invoice, or withhold it while it is a draft.
@@ -410,6 +430,23 @@ mod tests {
         let mut row = ip_asset_row();
         row.classes = "not json".into();
         assert!(project_ip_asset(&row, "c-1").classes.is_empty());
+    }
+
+    /// The client projection is two fields wide by design. This test exists so
+    /// that widening `ClientRow` later — to answer some other query — cannot
+    /// quietly widen what the portal is told about the firm's clients.
+    #[test]
+    fn client_projection_is_only_id_and_name() {
+        let out = wire(&project_client(&ClientRow {
+            id:   "c-petal".into(),
+            name: "Petalveda Botanicals Pvt Ltd".into(),
+        }));
+
+        assert!(out.contains("Petalveda Botanicals Pvt Ltd"));
+
+        let parsed: serde_json::Value = serde_json::from_str(&out).unwrap();
+        let fields: Vec<String> = parsed.as_object().unwrap().keys().cloned().collect();
+        assert_eq!(fields, ["id", "name"], "the client wire type grew: {out}");
     }
 
     fn invoice_row(status: &str) -> InvoiceRow {

@@ -317,10 +317,21 @@ const HANDLERS: Record<string, (args: any) => unknown> = {
   get_unbilled_summary: () => ({ matterId: MATTER.id, matterTitle: MATTER.title,
     totalHours: 3.5, totalAmount: 18_000, entryCount: 2 }),
 
-  sync_status: () => ({
-    lastSyncedAt: null, isSyncing: false, pendingChanges: 3,
-    isEnabled: false, serverUrl: null, lastError: null,
-  }),
+  // Two states worth seeing. `?sync=on` gives the configured firm — sync
+  // running, a token stored, and a rejection sitting in last_error, which is
+  // the state the Sync tab has to communicate well.
+  sync_status: () =>
+    new URLSearchParams(window.location.search).get('sync') === 'on'
+      ? {
+          lastSyncedAt: '2026-08-09 14:12:07', isSyncing: false, pendingChanges: 1,
+          isEnabled: true, serverUrl: 'https://sync.persistas.in',
+          lastError: '1 change(s) rejected: upsert deadline: matter P&P-2026-PT-0117 is not in the mirror',
+          hasToken: true,
+        }
+      : {
+          lastSyncedAt: null, isSyncing: false, pendingChanges: 3,
+          isEnabled: false, serverUrl: null, lastError: null, hasToken: false,
+        },
 
   list_portal_users: (args: any) => [
     { id: 'pu-1', clientId: args?.clientId ?? 'c-petal', fullName: 'Anita Rao',

@@ -242,6 +242,16 @@ pub async fn list_upcoming_renewals(
     Ok(rows)
 }
 
+/// The raw row, for the sync projection.
+pub async fn get_row(pool: &SqlitePool, id: &str) -> anyhow::Result<Option<IpAssetRow>> {
+    let sql = format!("SELECT {SELECT_COLUMNS} FROM ip_assets WHERE id = ?");
+    let row = sqlx::query_as::<_, IpAssetRow>(&sql)
+        .bind(id)
+        .fetch_optional(pool)
+        .await?;
+    Ok(row)
+}
+
 /// How many deadlines point at this asset — guards deletion.
 pub async fn count_linked_deadlines(pool: &SqlitePool, id: &str) -> anyhow::Result<i64> {
     let n: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM deadlines WHERE ip_asset_id = ?")

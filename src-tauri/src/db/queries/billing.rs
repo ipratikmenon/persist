@@ -371,6 +371,21 @@ pub async fn create_invoice(
     get_invoice(pool, id).await
 }
 
+/// The raw row for the sync projection. Returns None rather than erroring:
+/// an invoice deleted since it was queued is a normal outcome, not a failure.
+pub async fn get_invoice_row(pool: &SqlitePool, id: &str) -> anyhow::Result<Option<InvoiceRow>> {
+    let row = sqlx::query_as::<_, InvoiceRow>(
+        "SELECT id, client_id, matter_ids, status, invoice_date, due_date, subtotal,
+                cgst_amount, sgst_amount, igst_amount, total_with_tax, amount_paid,
+                notes, gst_type, pdf_doc_id, created_by, created_at, updated_at
+         FROM invoices WHERE id = ?",
+    )
+    .bind(id)
+    .fetch_optional(pool)
+    .await?;
+    Ok(row)
+}
+
 pub async fn get_invoice(pool: &SqlitePool, id: &str) -> anyhow::Result<InvoiceRow> {
     let row = sqlx::query_as::<_, InvoiceRow>(
         "SELECT id, client_id, matter_ids, status, invoice_date, due_date, subtotal,

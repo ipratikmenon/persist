@@ -650,6 +650,9 @@ export interface SyncStatus {
   isEnabled: boolean;
   serverUrl: string | null;
   lastError: string | null;
+  /** Whether a sync token is stored in the OS keychain. The token itself is
+   *  never sent to Deck — only whether one still has to be entered. */
+  hasToken: boolean;
 }
 
 // ---------------------------------------------------------------------------

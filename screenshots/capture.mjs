@@ -104,6 +104,14 @@ await shot('12-portal-sync', '/portal', {
   },
 });
 
+// The configured firm: sync on, token stored, one rejection outstanding.
+await shot('13-portal-sync-live', '/portal?sync=on', {
+  setup: async (p) => {
+    await p.getByRole('button', { name: 'Sync' }).click();
+    await p.waitForTimeout(400);
+  },
+});
+
 await browser.close();
 server.close();
 console.log(`\nWrote ${fs.readdirSync(OUT).length} screenshots to screenshots/out/`);

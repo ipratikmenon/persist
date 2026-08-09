@@ -4,6 +4,7 @@
 
 use crate::db::queries::ip_assets as ip_asset_queries;
 use crate::AppState;
+use crate::services::sync_engine::{self, EntityType, Op};
 use uuid::Uuid;
 
 // ---------------------------------------------------------------------------
@@ -204,9 +205,12 @@ pub async fn create_ip_asset(
     let id = Uuid::new_v4().to_string();
     let pool = { state.db.lock().await.clone() };
 
-    ip_asset_queries::create(&pool, &id, input)
+    let asset = ip_asset_queries::create(&pool, &id, input)
         .await
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+
+    sync_engine::note_change(&pool, EntityType::IpAsset, &asset.id, Op::Upsert).await;
+    Ok(asset)
 }
 
 #[tauri::command]
@@ -227,10 +231,13 @@ pub async fn update_ip_asset(
     )?;
 
     let pool = { state.db.lock().await.clone() };
-    ip_asset_queries::update(&pool, &id, input)
+    let asset = ip_asset_queries::update(&pool, &id, input)
         .await
         .map_err(|e| e.to_string())?
-        .ok_or_else(|| format!("IP asset {id} not found"))
+        .ok_or_else(|| format!("IP asset {id} not found"))?;
+
+    sync_engine::note_change(&pool, EntityType::IpAsset, &asset.id, Op::Upsert).await;
+    Ok(asset)
 }
 
 /// Delete an asset. Refuses while deadlines still reference it — unlinking or
@@ -255,7 +262,10 @@ pub async fn delete_ip_asset(
 
     ip_asset_queries::delete(&pool, &id)
         .await
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+
+    sync_engine::note_change(&pool, EntityType::IpAsset, &id, Op::Delete).await;
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------

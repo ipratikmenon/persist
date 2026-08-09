@@ -12,9 +12,9 @@
 
 **Phase:** 2 — Billing & Client Portal
 **Week:** 3
-**Active module:** M5 desktop surface COMPLETE. Next: Step 3b (sync server + transport).
-**Last session completed:** S17 — 2026-08-06 — Deck surface for M5: Client Portal page, share toggles, verify action, role-gated UI. cargo test 146/146, pnpm build PASS.
-**Last updated:** 2026-08-06
+**Active module:** M5 Step 3b COMPLETE — data now moves desktop → mirror. Next: Step 3c (FastAPI portal backend).
+**Last session completed:** S18 — 2026-08-09 — M5 Step 3b: Axum sync server, Keel push/pull transport, outbox wiring on every write path, migration 0012. cargo test 156/156 + 4 e2e against live PostgreSQL, pnpm build PASS.
+**Last updated:** 2026-08-09
 
 ---
 
@@ -22,30 +22,41 @@
 
 > Fill this section at the start of a session. Clear it when done.
 
-**Nothing in progress.** S17 made everything from the last four sprints
-reachable by an attorney. On `claude/new-session-dbqe5o`, **nothing pushed to
+**Nothing in progress.** S18 closed M5 Step 3b: firm data now actually reaches
+the PostgreSQL mirror. On `claude/new-session-dbqe5o`, **nothing pushed to
 main**.
 
-  ✅ `pages/Portal/PortalHome.tsx` — Client access (invite/list/revoke portal
-     users per client) and Sync (server URL, on/off, queued count, last error).
-  ✅ `lib/permissions.ts` — mirrors `rbac.rs` so an attorney is never shown a
-     button that will refuse them. **UX only; Keel remains the enforcer.**
-  ✅ Share/unshare toggle on document rows; the SHARED badge is now live state.
-  ✅ Verify action + client-visibility toggle on the docket timeline — closes
-     the two loops opened in S15 (a badge with no action) and S16 (commands
-     with no caller).
-  ✅ Nav: added **Renewals** (built in S14 but only reachable by URL) and
-     **Portal**. Fixed active-state matching — `/dockets` was lighting up on
-     `/dockets/renewals`.
+  ✅ `server/` — Axum sync server: `/health`, `/sync/push`, `/sync/pull`,
+     `/sync/ack`. Constant-time token compare; refuses to start without a
+     `SYNC_CLIENT_TOKEN` of 32+ characters. Wire types use
+     `deny_unknown_fields`, so a payload carrying a field the mirror does not
+     declare is rejected rather than partially accepted.
+  ✅ `services/sync_engine/transport.rs` — push/pull/ack. A withheld row
+     produces no wire entry at all, rather than one the server has to refuse.
+     Accepted entries are cleared; rejected ones stay queued with the reason.
+  ✅ `commands/sync.rs` — `trigger_sync` now really syncs. A failed push does
+     not abort the pull, so inbound client work still arrives when the outbound
+     leg is broken.
+  ✅ **Outbox wiring on every write path** — the item flagged in S16 as "must
+     not be forgotten". Matters, clients, deadlines, IP assets, invoices and
+     payments all enqueue now. `note_change` logs and records rather than
+     failing a write that already committed.
+  ✅ `set_sync_token` + OS-keychain storage, with the Sync tab's write-only
+     token field. Keychain generalised to hold more than one secret.
+  ✅ `0012_outbox_client.sql` — the outbox CHECK predated `Client`.
 
-⚠️ **The transport is still not built.** Sync can be configured and enabled, but
-`trigger_sync` errors explicitly rather than sending. Nothing leaves the machine.
+**Found and fixed by the end-to-end test:** nothing projected the *client* row,
+and every table in the mirror has a foreign key to `mirror.clients`. A first
+sync would have been refused outright. Added `ClientPublic` (id and name only)
+and `order_for_push`, which sends clients ahead of the rest of their batch.
 
 ⚠️ **Still awaiting your review:** the M5 spec.
 
-Next: **M5 Step 3b** — the Axum sync server and push/pull transport, plus the
-remaining outbox write-path wiring (matters, deadlines, invoices, payments do
-not enqueue yet — see the S16 log).
+⚠️ **Still shared-secret auth, not mTLS.** The spec asks for mTLS; what exists is
+a bearer token. Fine for a private network, not for the open internet.
+
+Next: **M5 Step 3c** — the FastAPI portal backend (OTP + JWT, RLS middleware,
+routes).
 
 ---
 
@@ -413,6 +424,12 @@ bets: M35, M36, M38.
 | Aug 2026 | Projection tests assert on serialised JSON, not struct fields | Checking fields only proves what we already know. Building a row with `INTERNAL_LEAK` in every unnamed column and asserting it is absent from the wire bytes proves what actually leaves |
 | Aug 2026 | A Delete in the outbox supersedes a pending Upsert | Otherwise an upsert queued before an un-share resurrects the row in the mirror. Re-queuing the same op collapses, so five edits before one sync are one push |
 | Aug 2026 | Enabling sync without a server URL is refused | A firm that believes sync is on and is wrong is worse off than one that sees an error |
+| Aug 2026 | The client row is a synced entity like any other | Every table in `mirror.*` has a foreign key to `mirror.clients`. Auto-creating a stub row server-side would put an empty client name in the portal; projecting it properly costs two fields |
+| Aug 2026 | Clients are sorted ahead of everything else in a push batch | The outbox is oldest-first and clients are created before their matters, so the order usually holds — "usually" is not what a first sync should rest on |
+| Aug 2026 | `note_change` logs a failed enqueue instead of failing the write | The local row is already committed. Showing an attorney a failure for a change that did happen is the worse failure mode; the miss surfaces on `sync_state.last_error` instead |
+| Aug 2026 | A sync run stamps `last_pushed_at` even when a leg failed | It answers "when did we last talk to the server". `last_error` carries the qualification, and Deck no longer says "Sync complete" when one is set |
+| Aug 2026 | Client uploads are pulled as metadata only | An unreviewed client file must not be written into the firm's vault automatically, whatever the scanner said |
+| Aug 2026 | Auth is a shared secret, not mTLS as the spec asks | Deliberate shortfall, recorded rather than quietly dropped. Adequate on a private network; must be closed before the server faces the open internet |
 | Aug 2026 | Remaining outbox write-path wiring deferred to Step 3b | Enqueuing from fifteen call sites with nothing to drain them is untestable code written a sprint early. It lands with the transport so both can be tested together |
 | Aug 2026 | Deck permission gating duplicates rbac.rs by hand | Per the auth spec, Deck gating is UX convenience and Keel is the enforcer. A divergence between the two degrades to "button shown, command refused" — never to a leak — so a hand-kept copy is an acceptable cost for not inventing an IPC round trip per button |
 | Aug 2026 | Nav active state matches exact-or-child, not prefix | `/dockets` was lighting up on `/dockets/renewals`, so two items appeared active at once |
@@ -425,9 +442,9 @@ bets: M35, M36, M38.
 # Key commands
 pnpm tauri dev          # Start Tauri desktop app in dev mode
 pnpm tauri build        # Build production binary
-cargo test              # Run Rust tests (from src-tauri/) — currently 30/30
+cargo test --lib        # Run Rust tests (from src-tauri/) — currently 156/156
 cargo sqlx migrate run  # Apply pending migrations (from src-tauri/)
-pnpm build              # Build Deck for production — currently 467 modules, 457kb
+pnpm build              # Build Deck for production — currently 477 modules, 529kb
 
 # Environment variables needed
 ANTHROPIC_API_KEY=      # Claude API key for ai_router.rs
@@ -452,6 +469,7 @@ HETZNER_SYNC_URL=       # Sync server URL (Phase 2 M5)
 | Apr 17 2026 | S07: Phase 2 M4 Billing — spec written, migration 0006_billing.sql (5 tables), queries/billing.rs (5 tests), commands/billing.rs (13 cmds), lib.rs billing commands registered, tauri.ts billing wrappers, BillingHome/TimeTracker/InvoiceList/FirmSettingsPanel. Also: new spec files placed in specs/ (module-02-docketing, auth-rbac, hpas-integration, module-03-documents updated), PROGRESS.md reconciled | specs/*.md, 0006_billing.sql, queries/billing.rs, commands/billing.rs, pages/Billing/*.tsx | cargo test: 30/30, pnpm build: PASS (467 modules, 457kb) |
 | Apr 19 2026 | S08: Phase 2 M4 Billing UI complete — InvoiceDetail.tsx (back/actions/line items/GST panel/payment modal), InvoiceComposer.tsx (client→matter→entries→fixed-fee→GST type→live totals→create), InvoiceList wired (row click→detail, New Invoice→composer), latex.rs real impl (finds pdflatex, tempdir compile, 3 tests), invoice.tex GST-compliant template, client lookup added to generate_invoice_pdf, tempfile moved to [dependencies] | pages/Billing/InvoiceDetail.tsx, InvoiceComposer.tsx, InvoiceList.tsx, services/latex.rs, storage/templates/invoice.tex, commands/billing.rs, Cargo.toml | cargo test: 33/33, pnpm build: PASS (469 modules, 482kb) |
 | Jul 19 2026 | S09: Expansion roadmap (planning only, no code) — researched adalat.ai + visiocyber.ai; wrote specs/expansion-roadmap.md defining Track A Courtroom Intelligence (M25 transcription, M26 hearings/cause lists, M27 doc digitization, M28 research/summarization, M29 WhatsApp chatbot) and Track B Startup Legal SaaS (M30 Startup Legal OS, M31 DP Audit Engine → Phase 2.5, M32 Compliance & AI Governance, M33 Assessments); added Phases 2.5/8/9 to TASKS.md; 4 architecture decisions logged | specs/expansion-roadmap.md (new), TASKS.md, PROGRESS.md, SESSION-LOG/2026-07-19-S09-expansion-roadmap.md | No code changed — tests unaffected (33/33 as of S08) |
+| Aug 9 2026 | S18: M5 Step 3b — the transport. **Server:** `server/src/{main,types,mirror}.rs` — Axum routes, constant-time token check, refuses to start on a short token, `deny_unknown_fields` on every wire type, money as exact NUMERIC. **Keel:** `services/sync_engine/transport.rs` (push/pull/ack, `build_entry` returns None for withheld rows, `order_for_push`), `record_sync_run`, `note_change`; `commands/sync.rs::trigger_sync` wired for real + `set_sync_token`; outbox enqueue added to every remaining write path (matters, clients, deadlines, IP assets, invoices, payments) — the S16 deferral, now closed. Keychain generalised to hold session and sync tokens without collision. **Gap the e2e test found:** nothing projected the client row that every mirror FK points at — added `ClientPublic` + migration `0012_outbox_client.sql`. **Deck:** write-only sync token field, honest "Sync now" messaging (a run that failed a leg no longer reports "complete"). New `tests/sync_e2e.rs` — 4 tests, skipped without a server, run green against live PostgreSQL | server/src/*, src-tauri/src/services/sync_engine/{mod,transport,projection}.rs, services/keychain.rs, commands/{sync,matters,deadlines,ip_assets,billing}.rs, db/queries/matters.rs, db/migrations/0012_outbox_client.sql, tests/sync_e2e.rs, lib.rs, db/SCHEMA.md, src/pages/Portal/PortalHome.tsx, src/lib/{tauri,ipc-types}.ts, src/stores/sync.ts, screenshots/* | cargo test: 156/156 (was 146), sync e2e: 4/4 vs live PostgreSQL, pnpm build: PASS |
 | Aug 6 2026 | S17: Deck surface for M5. `pages/Portal/PortalHome.tsx` (Client access + Sync tabs), `lib/permissions.ts` mirroring rbac.rs for UI gating, share/unshare toggle on document rows with live SHARED badge, verify action + client-visibility toggle on the docket timeline, nav gains Renewals and Portal with fixed active-state matching. Exposed `is_client_visible` on the Deadline IPC type (row had it, wire type did not). Screenshot harness extended to 12 views | src/pages/Portal/PortalHome.tsx, src/lib/permissions.ts, src/pages/Documents/DocumentList.tsx, src/pages/Dockets/IPAssetRecord.tsx, src/components/shell/AppShell.tsx, src/App.tsx, src/lib/ipc-types.ts, src-tauri/src/commands/deadlines.rs, src-tauri/src/db/queries/deadlines.rs, screenshots/* | cargo test: 146/146, pnpm build: PASS |
 | Aug 6 2026 | S16: M5 Step 3a — sync engine. `services/sync_engine/projection.rs`: MatterPublic/DeadlinePublic/IpAssetPublic/InvoicePublic, plain functions (not From), `Withheld` for drafts and non-visible deadlines, money rounded to 2dp; 12 tests that serialise to JSON and assert sensitive values are absent, plus a guard test that fails if a time-entry projection is ever added. `services/sync_engine/mod.rs`: outbox with collapsing enqueue and Delete-supersedes-Upsert, retry/backoff capped at 1h, sync state with enable-requires-URL; 11 tests. `commands/sync.rs` rewritten: 11 commands. Also added `is_client_visible` to DeadlineRow (column existed since 0009 but was never selected) | services/sync_engine/{mod,projection}.rs, commands/sync.rs, db/queries/deadlines.rs, services/mod.rs, lib.rs, src/lib/{ipc-types,tauri}.ts, src/stores/sync.ts | cargo test: 146/146 (was 122), pnpm build: PASS |
 | Aug 6 2026 | S15: Three parallel sprints + screenshot harness. **RBAC:** `src-tauri/src/rbac.rs` (Permission enum, rank table, `require` guard, 6 tests); guards on close/archive matter, delete_document, create_invoice, update_firm_settings, create/verify deadline; replaced the ad-hoc Partner check in billing. **Dual verification:** `0011_verification.sql` (created_by, reference_number, is_verified, verified_by/at, docket_errors), `verify_deadline` + `list_unverified_deadlines`, P&P-DD-NNNN generator, statutory-default client visibility, 3 new query tests. **Cascade UI:** `CascadePreview.tsx`, `VerificationBadge.tsx` + `ReferenceChip`, wired into IPAssetRecord (Generate chain action, badges + refs on timeline rows); fixed `humanise` not splitting the TM acronym. **Screenshots:** `screenshots/{mock,capture.mjs}`, `vite.config.screenshots.ts`, 10 captured views | src-tauri/src/rbac.rs, 0011_verification.sql, commands/{deadlines,matters,billing,documents}.rs, db/queries/deadlines.rs, lib.rs, src/components/dockets/{CascadePreview,VerificationBadge}.tsx, src/pages/Dockets/IPAssetRecord.tsx, src/lib/{ipc-types,tauri}.ts, screenshots/*, vite.config.screenshots.ts, .gitignore | cargo test: 122/122 (was 113), pnpm build: PASS |

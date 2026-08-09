@@ -414,6 +414,70 @@ pub async fn has_primary_party(pool: &SqlitePool, matter_id: &str) -> anyhow::Re
 }
 
 // ---------------------------------------------------------------------------
+// Sync support (Module 5) — raw row access for the projection layer
+// ---------------------------------------------------------------------------
+
+/// The raw row, for projection. Deliberately separate from `get_by_id`, which
+/// returns the assembled IPC `Matter`: the projection must see storage, not a
+/// view that has already been shaped for Deck.
+pub async fn get_row(pool: &SqlitePool, id: &str) -> anyhow::Result<Option<MatterRow>> {
+    let row = sqlx::query_as::<_, MatterRow>(
+        "SELECT id, client_id, title, matter_type, sub_type, status, priority,
+                responsible_partner_id, forum, jurisdiction, opened_date,
+                target_close_date, internal_notes, client_notes, tags,
+                linked_matter_ids, created_at, updated_at
+         FROM matters WHERE id = ?",
+    )
+    .bind(id)
+    .fetch_optional(pool)
+    .await?;
+    Ok(row)
+}
+
+/// The subset of a client the mirror carries. Everything else on `clients` —
+/// gstin, pan, address, phone, email, notes — is commercially sensitive and has
+/// no portal use, so it is not even fetched.
+#[derive(Debug, Clone, sqlx::FromRow, PartialEq)]
+pub struct ClientRow {
+    pub id:   String,
+    pub name: String,
+}
+
+pub async fn get_client_row(pool: &SqlitePool, id: &str) -> anyhow::Result<Option<ClientRow>> {
+    let row = sqlx::query_as::<_, ClientRow>("SELECT id, name FROM clients WHERE id = ?")
+        .bind(id)
+        .fetch_optional(pool)
+        .await?;
+    Ok(row)
+}
+
+pub async fn client_id_for_matter(pool: &SqlitePool, matter_id: &str) -> anyhow::Result<String> {
+    let id: Option<String> =
+        sqlx::query_scalar("SELECT client_id FROM matters WHERE id = ?")
+            .bind(matter_id)
+            .fetch_optional(pool)
+            .await?;
+    id.ok_or_else(|| anyhow::anyhow!("matter {matter_id} not found"))
+}
+
+/// Display name of the responsible partner, or None.
+/// Returns a NAME, never an id — the projection signature will not accept an id,
+/// and this is the only function that resolves one.
+pub async fn responsible_attorney_name(
+    pool: &SqlitePool,
+    row: &MatterRow,
+) -> anyhow::Result<Option<String>> {
+    let Some(user_id) = row.responsible_partner_id.as_deref() else {
+        return Ok(None);
+    };
+    let name: Option<String> = sqlx::query_scalar("SELECT name FROM users WHERE id = ?")
+        .bind(user_id)
+        .fetch_optional(pool)
+        .await?;
+    Ok(name)
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 

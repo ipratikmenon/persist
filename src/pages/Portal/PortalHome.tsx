@@ -332,6 +332,7 @@ function SyncTab({ allowed }: { allowed: boolean }) {
 
   const [status, setStatus] = useState<SyncStatus | null>(null);
   const [url, setUrl]       = useState('');
+  const [token, setToken]   = useState('');
   const [busy, setBusy]     = useState(false);
   const [error, setError]   = useState<string | null>(null);
   const [note, setNote]     = useState<string | null>(null);
@@ -373,16 +374,37 @@ function SyncTab({ allowed }: { allowed: boolean }) {
     }
   };
 
-  const syncNow = async () => {
+  const saveToken = async () => {
     setBusy(true); setError(null); setNote(null);
     try {
-      setStatus(await keel.sync.trigger());
-      setNote('Sync complete.');
+      setStatus(await keel.sync.setToken(token.trim()));
+      // Never keep it in component state once Keel has it.
+      setToken('');
+      setNote(token.trim() ? 'Sync token stored in the keychain.' : 'Sync token cleared.');
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setBusy(false);
+    }
+  };
+
+  const syncNow = async () => {
+    setBusy(true); setError(null); setNote(null);
+    try {
+      const s = await keel.sync.trigger();
+      setStatus(s);
+      // A run can finish having failed one leg. Saying "complete" then would be
+      // the one message an attorney must not be able to trust.
+      if (!s.lastError) {
+        setNote(s.pendingChanges === 0
+          ? 'Sync complete — nothing left queued.'
+          : `Sync complete. ${s.pendingChanges} change(s) still queued.`);
+      }
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : String(e));
       load();
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -480,11 +502,52 @@ function SyncTab({ allowed }: { allowed: boolean }) {
             </button>
           )}
         </div>
+        {!status.serverUrl && (
+          <p style={{
+            margin: `${spacing[2]} 0 0`, fontSize: 11,
+            color: colors.textTertiary, fontFamily: fonts.ui,
+          }}>
+            Sync cannot be turned on until an address is set.
+          </p>
+        )}
+      </section>
+
+      {/* Sync token — write-only; Keel keeps it in the OS keychain */}
+      <section style={{ marginBottom: spacing[6] }}>
+        <div style={sectionLabel}>Sync token</div>
+        <div style={{ display: 'flex', gap: spacing[3], alignItems: 'flex-end' }}>
+          <div style={{ flex: 1 }}>
+            <input
+              type="password"
+              value={token}
+              onChange={e => setToken(e.target.value)}
+              placeholder={status.hasToken ? '•••••••• (a token is stored)' : 'Paste the token from the sync server'}
+              disabled={!allowed}
+              autoComplete="off"
+              style={{ ...inputStyle, fontFamily: fonts.mono, fontSize: fontSizes.mono }}
+            />
+          </div>
+          {allowed && (
+            <button
+              onClick={saveToken}
+              disabled={busy}
+              style={{
+                padding: `${spacing[2]} ${spacing[4]}`, borderRadius: radius.button,
+                border: `0.5px solid ${colors.border}`, background: 'transparent',
+                color: colors.textSecondary, fontFamily: fonts.ui,
+                fontSize: fontSizes.body, cursor: busy ? 'not-allowed' : 'pointer',
+              }}
+            >
+              Save
+            </button>
+          )}
+        </div>
         <p style={{
           margin: `${spacing[2]} 0 0`, fontSize: 11,
           color: colors.textTertiary, fontFamily: fonts.ui,
         }}>
-          Sync cannot be turned on until an address is set.
+          Stored in the OS keychain, never in the database. At least 32 characters.
+          Saving an empty field removes it.
         </p>
       </section>
 
@@ -504,10 +567,14 @@ function SyncTab({ allowed }: { allowed: boolean }) {
           </div>
         )}
 
+        {status.isEnabled && !status.hasToken && (
+          <ErrorNote message="Sync is on but no token is stored — the server will refuse every request until one is set." />
+        )}
+
         {status.isEnabled && (
           <motion.button
             onClick={syncNow}
-            disabled={busy}
+            disabled={busy || !status.hasToken}
             whileHover={!shouldReduce && !busy ? { opacity: 0.88 } : undefined}
             style={{ ...primaryButtonStyle(busy), alignSelf: 'flex-start' }}
           >

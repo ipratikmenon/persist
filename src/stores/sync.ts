@@ -15,6 +15,7 @@ export const useSyncStore = create<SyncStore>((set) => ({
     isEnabled: false,
     serverUrl: null,
     lastError: null,
+    hasToken: false,
   },
   setStatus: (status) => set({ status }),
 }));

@@ -3,6 +3,7 @@
 // See PROGRESS.md Phase 1 Module 2 for the full specification.
 
 use crate::AppState;
+use crate::services::sync_engine::{self, EntityType, Op};
 use crate::db::queries;
 use uuid::Uuid;
 
@@ -244,9 +245,12 @@ pub async fn create_deadline(
 
     let db = state.db.lock().await;
     let id = Uuid::new_v4().to_string();
-    queries::deadlines::create(&db, &id, &input)
+    let deadline = queries::deadlines::create(&db, &id, &input)
         .await
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+
+    queue_deadline(&db, &deadline).await;
+    Ok(deadline)
 }
 
 #[tauri::command]
@@ -256,9 +260,12 @@ pub async fn update_deadline(
     state: tauri::State<'_, AppState>,
 ) -> Result<Deadline, String> {
     let db = state.db.lock().await;
-    queries::deadlines::update(&db, &id, &input)
+    let deadline = queries::deadlines::update(&db, &id, &input)
         .await
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+
+    queue_deadline(&db, &deadline).await;
+    Ok(deadline)
 }
 
 #[tauri::command]
@@ -268,9 +275,12 @@ pub async fn mark_deadline_complete(
     state: tauri::State<'_, AppState>,
 ) -> Result<Deadline, String> {
     let db = state.db.lock().await;
-    queries::deadlines::mark_complete(&db, &id, &notes)
+    let deadline = queries::deadlines::mark_complete(&db, &id, &notes)
         .await
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+
+    queue_deadline(&db, &deadline).await;
+    Ok(deadline)
 }
 
 #[tauri::command]
@@ -279,9 +289,22 @@ pub async fn delete_deadline(
     state: tauri::State<'_, AppState>,
 ) -> Result<(), String> {
     let db = state.db.lock().await;
+
+    // The tombstone is queued before the row goes, since afterwards there is no
+    // way to tell whether the client could ever see it.
+    let was_visible = queries::deadlines::get_by_id(&db, &id)
+        .await
+        .map_err(|e| e.to_string())?
+        .is_some_and(|d| d.is_client_visible);
+
     queries::deadlines::delete(&db, &id)
         .await
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+
+    if was_visible {
+        sync_engine::note_change(&db, EntityType::Deadline, &id, Op::Delete).await;
+    }
+    Ok(())
 }
 
 /// Return the standard statutory templates for a given matter type.
@@ -359,4 +382,15 @@ pub async fn list_unverified_deadlines(
     queries::deadlines::list_unverified(&pool)
         .await
         .map_err(|e| e.to_string())
+}
+
+/// Queue a deadline for the portal mirror.
+///
+/// Only client-visible deadlines are queued. Queuing every deadline would work —
+/// the projection withholds private ones — but it would fill the outbox with
+/// entries whose only outcome is to be discarded, and hide real backlog.
+async fn queue_deadline(pool: &sqlx::SqlitePool, deadline: &Deadline) {
+    if deadline.is_client_visible {
+        sync_engine::note_change(pool, EntityType::Deadline, &deadline.id, Op::Upsert).await;
+    }
 }

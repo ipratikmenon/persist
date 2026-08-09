@@ -4,6 +4,7 @@
 
 use crate::AppState;
 use crate::db::queries;
+use crate::services::sync_engine::{self, EntityType, Op};
 use uuid::Uuid;
 
 // ---------------------------------------------------------------------------
@@ -228,9 +229,16 @@ pub async fn create_matter(
     let id = generate_matter_id(&db, &input.matter_type)
         .await
         .map_err(|e| e.to_string())?;
-    queries::matters::create(&db, &id, &input)
+    let matter = queries::matters::create(&db, &id, &input)
         .await
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+
+    // The mirror's foreign keys hang off the client row, so it is queued with
+    // the matter — a first sync that pushed a matter for a client the mirror has
+    // never seen would be refused.
+    sync_engine::note_change(&db, EntityType::Client, &matter.client_id, Op::Upsert).await;
+    sync_engine::note_change(&db, EntityType::Matter, &matter.id, Op::Upsert).await;
+    Ok(matter)
 }
 
 #[tauri::command]
@@ -240,9 +248,12 @@ pub async fn update_matter(
     state: tauri::State<'_, AppState>,
 ) -> Result<Matter, String> {
     let db = state.db.lock().await;
-    queries::matters::update(&db, &id, &input)
+    let matter = queries::matters::update(&db, &id, &input)
         .await
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+
+    sync_engine::note_change(&db, EntityType::Matter, &matter.id, Op::Upsert).await;
+    Ok(matter)
 }
 
 #[tauri::command]
@@ -259,9 +270,12 @@ pub async fn update_matter_status(
         .ok_or_else(|| format!("Matter not found: {id}"))?;
 
     validate_status_transition(&current.status, &status)?;
-    queries::matters::update_status(&db, &id, &status)
+    let matter = queries::matters::update_status(&db, &id, &status)
         .await
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+
+    sync_engine::note_change(&db, EntityType::Matter, &matter.id, Op::Upsert).await;
+    Ok(matter)
 }
 
 #[tauri::command]
@@ -279,9 +293,12 @@ pub async fn close_matter(
         .ok_or_else(|| format!("Matter not found: {id}"))?;
 
     validate_status_transition(&current.status, "Closed")?;
-    queries::matters::update_status(&db, &id, "Closed")
+    let matter = queries::matters::update_status(&db, &id, "Closed")
         .await
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+
+    sync_engine::note_change(&db, EntityType::Matter, &matter.id, Op::Upsert).await;
+    Ok(matter)
 }
 
 #[tauri::command]
@@ -298,9 +315,14 @@ pub async fn archive_matter(
         .ok_or_else(|| format!("Matter not found: {id}"))?;
 
     validate_status_transition(&current.status, "Archived")?;
-    queries::matters::update_status(&db, &id, "Archived")
+    let matter = queries::matters::update_status(&db, &id, "Archived")
         .await
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+
+    // Archiving withdraws the matter from the portal rather than showing the
+    // client a matter the firm considers finished with.
+    sync_engine::note_change(&db, EntityType::Matter, &matter.id, Op::Delete).await;
+    Ok(matter)
 }
 
 #[tauri::command]
@@ -394,9 +416,12 @@ pub async fn create_client(
 ) -> Result<Client, String> {
     let db = state.db.lock().await;
     let id = Uuid::new_v4().to_string();
-    queries::clients::create(&db, &id, &input)
+    let client = queries::clients::create(&db, &id, &input)
         .await
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+
+    sync_engine::note_change(&db, EntityType::Client, &client.id, Op::Upsert).await;
+    Ok(client)
 }
 
 #[tauri::command]
@@ -406,9 +431,12 @@ pub async fn update_client(
     state: tauri::State<'_, AppState>,
 ) -> Result<Client, String> {
     let db = state.db.lock().await;
-    queries::clients::update(&db, &id, &input)
+    let client = queries::clients::update(&db, &id, &input)
         .await
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+
+    sync_engine::note_change(&db, EntityType::Client, &client.id, Op::Upsert).await;
+    Ok(client)
 }
 
 // ---------------------------------------------------------------------------

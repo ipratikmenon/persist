@@ -10,6 +10,7 @@
 // today.
 
 pub mod projection;
+pub mod transport;
 
 use anyhow::Result;
 use sqlx::SqlitePool;
@@ -21,13 +22,13 @@ use uuid::Uuid;
 
 /// Entities that can be projected outward.
 ///
-/// Several variants are not constructed yet: only the sharing commands enqueue
-/// today. The remaining write paths are wired in Step 3b alongside the transport
-/// that drains them — enqueuing from fifteen call sites with nothing to drain
-/// them would be untestable code written a sprint early.
+/// Notification has no write path yet; it lands with the notification service.
 #[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EntityType {
+    /// Must reach the mirror before anything that references it — every other
+    /// mirror table has a foreign key to mirror.clients.
+    Client,
     Matter,
     Deadline,
     IpAsset,
@@ -41,6 +42,7 @@ pub enum EntityType {
 impl EntityType {
     pub fn as_str(self) -> &'static str {
         match self {
+            EntityType::Client       => "Client",
             EntityType::Matter       => "Matter",
             EntityType::Deadline     => "Deadline",
             EntityType::IpAsset      => "IpAsset",
@@ -262,6 +264,49 @@ pub async fn set_server_url(pool: &SqlitePool, url: &str) -> Result<SyncStateRow
         "UPDATE sync_state SET server_url = ?, updated_at = datetime('now') WHERE id = 1",
     )
     .bind(url.trim())
+    .execute(pool)
+    .await?;
+    state(pool).await
+}
+
+/// Queue a change from a write path, without letting sync bookkeeping fail the
+/// write itself.
+///
+/// The local row is already committed by the time this runs. Returning an error
+/// here would show the attorney a failure for a change that did happen, which is
+/// the worse of the two failure modes. Instead the miss is logged and recorded
+/// on `sync_state.last_error`, so the Sync tab shows that the mirror is behind
+/// rather than silently diverging.
+pub async fn note_change(pool: &SqlitePool, entity: EntityType, id: &str, op: Op) {
+    if let Err(e) = enqueue(pool, entity, id, op).await {
+        log::error!("failed to queue {} {id} for sync: {e:#}", entity.as_str());
+        let msg = format!("A change to {} {id} could not be queued for sync.", entity.as_str());
+        let _ = sqlx::query(
+            "UPDATE sync_state SET last_error = ?, updated_at = datetime('now') WHERE id = 1",
+        )
+        .bind(&msg)
+        .execute(pool)
+        .await;
+    }
+}
+
+/// Stamp the outcome of a sync run.
+///
+/// `last_pushed_at` and `last_pulled_at` advance even when the run reported
+/// problems: they answer "when did we last talk to the server", and a run that
+/// pushed nine rows and had one rejected did talk to it. `last_error` carries
+/// the qualification, and is cleared on a clean run so a stale failure does not
+/// sit in the UI for ever.
+pub async fn record_sync_run(pool: &SqlitePool, error: Option<&str>) -> Result<SyncStateRow> {
+    sqlx::query(
+        "UPDATE sync_state
+            SET last_pushed_at = datetime('now'),
+                last_pulled_at = datetime('now'),
+                last_error     = ?,
+                updated_at     = datetime('now')
+          WHERE id = 1",
+    )
+    .bind(error)
     .execute(pool)
     .await?;
     state(pool).await

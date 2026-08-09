@@ -19,6 +19,8 @@ Update this file after every migration. Never let it drift from the actual schem
 | `0008_ip_assets.sql` | IP asset records + `deadlines.ip_asset_id` linkage (B02) | Phase 1 M2 ext |
 | `0009_portal_sync.sql` | Client portal sync — `deadlines.is_client_visible`, portal_users, sync_outbox, client_uploads, sync_state | Phase 2 M5 |
 | `0010_cascade.sql` | Cascade templates + escalations; `deadlines` rebuilt to admit status `Missed` and carry cascade linkage | Phase 1 M2 ext |
+| `0011_verification.sql` | Dual verification — `deadlines.created_by/reference_number/is_verified/verified_by/verified_at`, docket_errors | Phase 1 M2 ext |
+| `0012_outbox_client.sql` | `sync_outbox` rebuilt to admit entity type `Client` — every mirror table has a FK to `mirror.clients`, so the client row must be pushed like any other entity | Phase 2 M5 |
 
 ---
 
@@ -415,10 +417,15 @@ to two clients.
 
 Pending outbound changes. Drained in `created_at` order; cleared on server ack.
 
+`Client` entries are sent ahead of the rest of their batch: every table in the
+PostgreSQL mirror has a foreign key to `mirror.clients`, so a matter for a client
+the mirror has never seen is refused outright. See `order_for_push` in
+`src-tauri/src/services/sync_engine/transport.rs`.
+
 | Column | Type | Notes |
 |---|---|---|
 | `id` | TEXT PK | UUID |
-| `entity_type` | TEXT NOT NULL | `Matter \| Deadline \| IpAsset \| Document \| Invoice \| Payment \| PortalUser \| Notification` |
+| `entity_type` | TEXT NOT NULL | `Client \| Matter \| Deadline \| IpAsset \| Document \| Invoice \| Payment \| PortalUser \| Notification` (`Client` added in 0012) |
 | `entity_id` | TEXT NOT NULL | Desktop row id |
 | `op` | TEXT NOT NULL DEFAULT 'Upsert' | `Upsert \| Delete` — Delete is a tombstone so un-sharing actually removes the mirror row |
 | `attempts` | INTEGER NOT NULL DEFAULT 0 | Retry counter |

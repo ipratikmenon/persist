@@ -2,15 +2,15 @@
 // specs/module-05-portal.md §11
 //
 // These control sync and manage the client-facing surface from the desktop.
-// The transport itself (push/pull over mTLS) is Step 3b; what exists here is
-// everything that decides *what* would be sent and *whether* sending is on.
+// The transport lives in services/sync_engine/transport.rs; these commands
+// decide *what* would be sent, *whether* sending is on, and drive a run.
 //
 // Sync is off until a server URL is configured. A firm with no server keeps
 // working exactly as it does today, and nothing leaves the machine.
 
 use crate::db::queries::documents as doc_queries;
 use crate::rbac::{self, Permission};
-use crate::services::sync_engine::{self, EntityType, Op};
+use crate::services::sync_engine::{self, transport, EntityType, Op};
 use crate::AppState;
 use uuid::Uuid;
 
@@ -29,6 +29,9 @@ pub struct SyncStatus {
     pub is_enabled:      bool,
     pub server_url:      Option<String>,
     pub last_error:      Option<String>,
+    /// Whether a sync token is stored. The token itself is never returned —
+    /// Deck only needs to know whether one still has to be entered.
+    pub has_token:       bool,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -96,6 +99,7 @@ pub async fn sync_status(state: tauri::State<'_, AppState>) -> Result<SyncStatus
         is_enabled:      st.is_enabled != 0,
         server_url:      st.server_url,
         last_error:      st.last_error,
+        has_token:       state.keychain.load_sync_token().is_some(),
     })
 }
 
@@ -126,8 +130,34 @@ pub async fn set_sync_server(
     sync_status(state).await
 }
 
-/// Manual push. The transport lands in Step 3b; until then this reports what
-/// *would* be sent rather than pretending to have sent it.
+/// Store the shared secret the sync server expects. Kept in the OS keychain,
+/// never in SQLite — the database gets backed up and copied, the keychain does not.
+#[tauri::command]
+pub async fn set_sync_token(
+    token: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<SyncStatus, String> {
+    rbac::require(&state, Permission::ManagePortalUsers).await?;
+
+    let token = token.trim().to_string();
+    if token.is_empty() {
+        state.keychain.clear_sync_token();
+    } else {
+        // The server refuses to start on anything shorter, so catching it here
+        // saves the attorney a round trip and an opaque 401.
+        if token.len() < 32 {
+            return Err("The sync token must be at least 32 characters".into());
+        }
+        state.keychain.store_sync_token(&token);
+    }
+
+    sync_status(state).await
+}
+
+/// Manual sync: drain the outbox, then collect anything the client sent us.
+///
+/// A push failure does not abort the pull — inbound work (a client's uploaded
+/// examination report) should still arrive when the outbound leg is broken.
 #[tauri::command]
 pub async fn trigger_sync(state: tauri::State<'_, AppState>) -> Result<SyncStatus, String> {
     let pool = { state.db.lock().await.clone() };
@@ -136,15 +166,119 @@ pub async fn trigger_sync(state: tauri::State<'_, AppState>) -> Result<SyncStatu
     if st.is_enabled == 0 {
         return Err("Sync is off. Configure a server URL and enable sync first.".into());
     }
+    let server_url = st
+        .server_url
+        .ok_or("Sync is enabled but no server URL is set.")?;
+    let token = state
+        .keychain
+        .load_sync_token()
+        .ok_or("No sync token is configured. Set one before syncing.")?;
 
-    let batch = sync_engine::pending(&pool, 100).await.map_err(|e| e.to_string())?;
-    log::info!("trigger_sync: {} entry(ies) ready to push", batch.len());
+    let mut problems: Vec<String> = Vec::new();
 
-    Err(format!(
-        "Sync transport is not built yet (Module 5 Step 3b). \
-         {} change(s) are queued and will be sent once it is.",
-        batch.len()
-    ))
+    match transport::push_once(&pool, &server_url, &token).await {
+        Ok(out) => {
+            log::info!(
+                "sync push: {} sent, {} accepted, {} rejected",
+                out.sent, out.accepted, out.rejected
+            );
+            if let Some(err) = out.first_error {
+                problems.push(format!("{} change(s) rejected: {err}", out.rejected));
+            }
+        }
+        Err(e) => {
+            log::warn!("sync push failed: {e:#}");
+            problems.push(format!("Push failed: {e}"));
+        }
+    }
+
+    match transport::pull_once(&server_url, &token).await {
+        Ok(pulled) => match ingest_pull(&pool, &server_url, &token, pulled).await {
+            Ok(n) => log::info!("sync pull: {n} inbound item(s) recorded"),
+            Err(e) => {
+                log::warn!("sync ingest failed: {e:#}");
+                problems.push(format!("Ingest failed: {e}"));
+            }
+        },
+        Err(e) => {
+            log::warn!("sync pull failed: {e:#}");
+            problems.push(format!("Pull failed: {e}"));
+        }
+    }
+
+    let error = if problems.is_empty() { None } else { Some(problems.join("; ")) };
+    sync_engine::record_sync_run(&pool, error.as_deref())
+        .await
+        .map_err(|e| e.to_string())?;
+
+    sync_status(state).await
+}
+
+/// Record what the client sent, then acknowledge it.
+///
+/// Only the *metadata* lands here. The bytes stay on the server until an
+/// attorney reviews the upload and pulls it into the vault — an unreviewed
+/// client file must never be written into the firm's document store
+/// automatically, whatever the scanner said (spec §13.4).
+async fn ingest_pull(
+    pool: &sqlx::SqlitePool,
+    server_url: &str,
+    token: &str,
+    pulled: transport::PullResponse,
+) -> Result<usize, String> {
+    let mut ack = transport::AckRequest::default();
+
+    for u in &pulled.uploads {
+        // A matter the desktop does not know about would break the FK; drop the
+        // attribution rather than the upload.
+        let known_matter: Option<String> = match &u.matter_id {
+            Some(m) => sqlx::query_scalar("SELECT id FROM matters WHERE id = ?")
+                .bind(m)
+                .fetch_optional(pool)
+                .await
+                .map_err(|e| e.to_string())?,
+            None => None,
+        };
+
+        let result = sqlx::query(
+            "INSERT INTO client_uploads (id, client_id, matter_id, filename, status, uploaded_at)
+             VALUES (?, ?, ?, ?, 'Pending', datetime('now'))
+             ON CONFLICT(id) DO NOTHING",
+        )
+        .bind(&u.id)
+        .bind(&u.client_id)
+        .bind(&known_matter)
+        .bind(&u.filename)
+        .execute(pool)
+        .await;
+
+        match result {
+            Ok(_) => ack.ingested_uploads.push(u.id.clone()),
+            Err(e) => {
+                // An unknown client is the likely cause. Rejecting tells the
+                // portal to stop offering it, instead of looping for ever.
+                log::warn!("rejecting client upload {}: {e}", u.id);
+                ack.rejected_uploads.push(u.id.clone());
+            }
+        }
+    }
+
+    // Invoice disputes are advisory — the attorney reads them in the portal tab.
+    for d in &pulled.disputes {
+        log::info!("client disputed invoice {}: {}", d.invoice_id, d.reason);
+        ack.ingested_disputes.push(d.id.clone());
+    }
+
+    let total = ack.ingested_uploads.len() + ack.rejected_uploads.len() + ack.ingested_disputes.len();
+    if total == 0 {
+        return Ok(0);
+    }
+
+    transport::ack(server_url, token, &ack)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    Ok(total)
 }
 
 // ---------------------------------------------------------------------------
