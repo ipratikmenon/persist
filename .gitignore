@@ -40,3 +40,10 @@ files_latest/
 # Screenshot harness artefacts (the harness itself is tracked)
 dist-screenshots
 screenshots/out
+
+# Portal backend
+portal/backend/.venv/
+portal/backend/.test-env
+portal/backend/*.pem
+.pytest_cache/
+*.egg-info/

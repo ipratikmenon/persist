@@ -257,14 +257,23 @@ DECLARE
     r RECORD;
     unprotected TEXT := '';
 BEGIN
+    -- A table is exempt only if no portal role can reach it at all — that is
+    -- how inbound.otp_challenges and inbound.refresh_tokens are protected.
+    -- Deriving the exemption from the grants rather than naming the tables
+    -- matters: a future table that *is* granted to a portal role and has no
+    -- RLS still fails this check, which is the whole point of having it.
     FOR r IN
         SELECT c.relname, n.nspname, c.relrowsecurity, c.relforcerowsecurity
         FROM pg_class c
         JOIN pg_namespace n ON n.oid = c.relnamespace
         WHERE n.nspname IN ('mirror', 'inbound')
           AND c.relkind = 'r'
-          -- otp_challenges is protected by having no grant at all, not by RLS.
-          AND NOT (n.nspname = 'inbound' AND c.relname = 'otp_challenges')
+          AND (
+              has_table_privilege('portal_reader', c.oid,
+                                  'SELECT, INSERT, UPDATE, DELETE')
+              OR has_table_privilege('portal_writer', c.oid,
+                                     'SELECT, INSERT, UPDATE, DELETE')
+          )
     LOOP
         IF NOT r.relrowsecurity OR NOT r.relforcerowsecurity THEN
             unprotected := unprotected || format('%s.%s ', r.nspname, r.relname);
@@ -274,7 +283,57 @@ BEGIN
     IF unprotected <> '' THEN
         RAISE EXCEPTION 'TABLES WITHOUT FORCED RLS: %', unprotected;
     END IF;
-    RAISE NOTICE 'PASS: every mirror/inbound table has RLS enabled and forced';
+    RAISE NOTICE 'PASS: every portal-reachable table has RLS enabled and forced';
+END
+$$;
+
+-- ---------------------------------------------------------------------------
+-- Test 11: the auth role cannot read the firm's work
+--
+-- portal_auth exists to resolve an email and manage OTP challenges. It is the
+-- one connection that runs before any client identity is established, so it is
+-- also the one whose blast radius has to be checked explicitly.
+-- ---------------------------------------------------------------------------
+
+DO $$
+DECLARE
+    reachable TEXT := '';
+    t TEXT;
+BEGIN
+    FOREACH t IN ARRAY ARRAY[
+        'mirror.matters_public', 'mirror.deadlines_public', 'mirror.ip_assets_public',
+        'mirror.documents_shared', 'mirror.invoices_public', 'mirror.payments_public',
+        'mirror.client_notifications', 'mirror.clients'
+    ]
+    LOOP
+        IF has_table_privilege('portal_auth', t, 'SELECT') THEN
+            reachable := reachable || t || ' ';
+        END IF;
+    END LOOP;
+
+    IF reachable <> '' THEN
+        RAISE EXCEPTION 'portal_auth can read firm data: %', reachable;
+    END IF;
+    RAISE NOTICE 'PASS: portal_auth cannot read a single matter, invoice or document';
+END
+$$;
+
+-- ---------------------------------------------------------------------------
+-- Test 12: session credentials are not client data
+--
+-- A refresh token is not something the connection that serves matters should
+-- ever be able to read.
+-- ---------------------------------------------------------------------------
+
+DO $$
+BEGIN
+    IF has_table_privilege('portal_reader', 'inbound.refresh_tokens',
+                           'SELECT, INSERT, UPDATE, DELETE')
+       OR has_table_privilege('portal_writer', 'inbound.refresh_tokens',
+                              'SELECT, INSERT, UPDATE, DELETE') THEN
+        RAISE EXCEPTION 'a portal data role can reach inbound.refresh_tokens';
+    END IF;
+    RAISE NOTICE 'PASS: refresh tokens unreachable from portal_reader and portal_writer';
 END
 $$;
 

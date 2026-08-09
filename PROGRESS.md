@@ -12,8 +12,8 @@
 
 **Phase:** 2 — Billing & Client Portal
 **Week:** 3
-**Active module:** M5 Step 3b COMPLETE — data now moves desktop → mirror. Next: Step 3c (FastAPI portal backend).
-**Last session completed:** S18 — 2026-08-09 — M5 Step 3b: Axum sync server, Keel push/pull transport, outbox wiring on every write path, migration 0012. cargo test 156/156 + 4 e2e against live PostgreSQL, pnpm build PASS.
+**Active module:** M5 Steps 3b + 3c COMPLETE — data reaches the mirror, and a client can now read it. Next: Step 3d (object storage, email delivery) or Step 4 (portal frontend).
+**Last session completed:** S18 — 2026-08-09 — M5 Step 3b (sync server + transport) and Step 3c (FastAPI portal backend). cargo test 156/156, sync e2e 4/4, portal 48/48, RLS gate 12/12, pnpm build PASS.
 **Last updated:** 2026-08-09
 
 ---
@@ -22,41 +22,57 @@
 
 > Fill this section at the start of a session. Clear it when done.
 
-**Nothing in progress.** S18 closed M5 Step 3b: firm data now actually reaches
-the PostgreSQL mirror. On `claude/new-session-dbqe5o`, **nothing pushed to
-main**.
+**Nothing in progress.** S18 closed M5 Steps 3b and 3c: firm data now reaches
+the PostgreSQL mirror, and a client can log in and read their own half of it.
+On `claude/new-session-dbqe5o`, **nothing pushed to main**.
+
+### Step 3b — the transport (desktop → mirror)
 
   ✅ `server/` — Axum sync server: `/health`, `/sync/push`, `/sync/pull`,
      `/sync/ack`. Constant-time token compare; refuses to start without a
      `SYNC_CLIENT_TOKEN` of 32+ characters. Wire types use
-     `deny_unknown_fields`, so a payload carrying a field the mirror does not
-     declare is rejected rather than partially accepted.
+     `deny_unknown_fields`.
   ✅ `services/sync_engine/transport.rs` — push/pull/ack. A withheld row
-     produces no wire entry at all, rather than one the server has to refuse.
-     Accepted entries are cleared; rejected ones stay queued with the reason.
-  ✅ `commands/sync.rs` — `trigger_sync` now really syncs. A failed push does
-     not abort the pull, so inbound client work still arrives when the outbound
-     leg is broken.
-  ✅ **Outbox wiring on every write path** — the item flagged in S16 as "must
-     not be forgotten". Matters, clients, deadlines, IP assets, invoices and
-     payments all enqueue now. `note_change` logs and records rather than
-     failing a write that already committed.
-  ✅ `set_sync_token` + OS-keychain storage, with the Sync tab's write-only
-     token field. Keychain generalised to hold more than one secret.
-  ✅ `0012_outbox_client.sql` — the outbox CHECK predated `Client`.
+     produces no wire entry at all. Accepted entries clear; rejected ones stay
+     queued with the reason.
+  ✅ **Outbox wiring on every write path** — the S16 deferral, closed.
+  ✅ `set_sync_token` + OS-keychain storage; the keychain now holds more than
+     one secret.
+  ✅ `0012_outbox_client.sql`. **Gap found by the e2e test:** nothing projected
+     the client row that every mirror foreign key points at.
 
-**Found and fixed by the end-to-end test:** nothing projected the *client* row,
-and every table in the mirror has a foreign key to `mirror.clients`. A first
-sync would have been refused outright. Added `ClientPublic` (id and name only)
-and `order_for_push`, which sends clients ahead of the rest of their batch.
+### Step 3c — the portal API (mirror → client)
+
+  ✅ `portal/backend/` — FastAPI. OTP login (no passwords anywhere), RS256 JWT,
+     rotating refresh tokens with reuse detection, and all the read routes.
+  ✅ **Four independent locks on privilege**, in order of how much they are
+     trusted: PostgreSQL RLS with `SET LOCAL app.current_client_id`; role
+     separation across three connections; a `client_id` filter in every query;
+     Pydantic models with `extra="forbid"`. Each one is tested with the others
+     disabled.
+  ✅ `0003_portal_auth.sql` — the login path needed a role. `portal_reader`
+     cannot resolve an email (RLS has no client id yet) and neither portal role
+     may touch an OTP challenge.
+  ✅ `0004_refresh_tokens.sql` — 15-minute access tokens are only usable with a
+     refresh mechanism.
+  ✅ RLS gate extended to 12 assertions; the "every table has forced RLS" check
+     now derives its exemptions from the grants rather than naming tables, so a
+     future table that *is* portal-reachable and unprotected still fails it.
+
+**Bug found in my own code by its own test:** `verify-otp` raised the 401 inside
+the transaction, which rolled back the attempt counter — leaving the OTP
+brute-forceable however low the cap. The refusal is now raised after the
+transaction closes.
 
 ⚠️ **Still awaiting your review:** the M5 spec.
 
-⚠️ **Still shared-secret auth, not mTLS.** The spec asks for mTLS; what exists is
-a bearer token. Fine for a private network, not for the open internet.
+⚠️ **Still shared-secret auth, not mTLS**, on the desktop↔server leg.
 
-Next: **M5 Step 3c** — the FastAPI portal backend (OTP + JWT, RLS middleware,
-routes).
+⚠️ **Not built:** object storage (signing is real, the bucket is not), virus
+scanning, email/SMS delivery of the OTP, notification read receipts.
+
+Next: **M5 Step 3d** (object storage + email delivery) or **Step 4** (the portal
+frontend — four tabs, same design tokens as Deck).
 
 ---
 
@@ -424,6 +440,12 @@ bets: M35, M36, M38.
 | Aug 2026 | Projection tests assert on serialised JSON, not struct fields | Checking fields only proves what we already know. Building a row with `INTERNAL_LEAK` in every unnamed column and asserting it is absent from the wire bytes proves what actually leaves |
 | Aug 2026 | A Delete in the outbox supersedes a pending Upsert | Otherwise an upsert queued before an un-share resurrects the row in the mirror. Re-queuing the same op collapses, so five edits before one sync are one push |
 | Aug 2026 | Enabling sync without a server URL is refused | A firm that believes sync is on and is wrong is worse off than one that sees an error |
+| Aug 2026 | The portal gets a fourth PostgreSQL role, `portal_auth` | Neither existing role can log a client in: `portal_reader` is scoped by a client id login has not established yet, and neither may touch an OTP challenge. Kept narrow — it can resolve an email and nothing else, so a compromised auth connection yields the client roster and nothing about the firm's work |
+| Aug 2026 | Refresh tokens rotate, and reuse revokes the whole family | Replay and theft are indistinguishable. Losing a session is a small cost; leaving a thief with a live one is not |
+| Aug 2026 | Another client's row is a 404, never a 403 | 403 confirms the id is real. 404 tells them nothing |
+| Aug 2026 | The API adds no `status <> 'Draft'` filter on invoices | The mirror's CHECK already forbids one. Filtering in the API would paper over a projection bug instead of surfacing it |
+| Aug 2026 | The RLS gate derives its exemptions from grants, not table names | A named exemption list grows silently. Deriving it means a future table that *is* portal-reachable and unprotected still fails the gate — negative-control verified |
+| Aug 2026 | No OpenAPI schema is served | The portal is not a public API; a schema only describes attack surface to someone with no business calling it |
 | Aug 2026 | The client row is a synced entity like any other | Every table in `mirror.*` has a foreign key to `mirror.clients`. Auto-creating a stub row server-side would put an empty client name in the portal; projecting it properly costs two fields |
 | Aug 2026 | Clients are sorted ahead of everything else in a push batch | The outbox is oldest-first and clients are created before their matters, so the order usually holds — "usually" is not what a first sync should rest on |
 | Aug 2026 | `note_change` logs a failed enqueue instead of failing the write | The local row is already committed. Showing an attorney a failure for a change that did happen is the worse failure mode; the miss surfaces on `sync_state.last_error` instead |
@@ -469,6 +491,7 @@ HETZNER_SYNC_URL=       # Sync server URL (Phase 2 M5)
 | Apr 17 2026 | S07: Phase 2 M4 Billing — spec written, migration 0006_billing.sql (5 tables), queries/billing.rs (5 tests), commands/billing.rs (13 cmds), lib.rs billing commands registered, tauri.ts billing wrappers, BillingHome/TimeTracker/InvoiceList/FirmSettingsPanel. Also: new spec files placed in specs/ (module-02-docketing, auth-rbac, hpas-integration, module-03-documents updated), PROGRESS.md reconciled | specs/*.md, 0006_billing.sql, queries/billing.rs, commands/billing.rs, pages/Billing/*.tsx | cargo test: 30/30, pnpm build: PASS (467 modules, 457kb) |
 | Apr 19 2026 | S08: Phase 2 M4 Billing UI complete — InvoiceDetail.tsx (back/actions/line items/GST panel/payment modal), InvoiceComposer.tsx (client→matter→entries→fixed-fee→GST type→live totals→create), InvoiceList wired (row click→detail, New Invoice→composer), latex.rs real impl (finds pdflatex, tempdir compile, 3 tests), invoice.tex GST-compliant template, client lookup added to generate_invoice_pdf, tempfile moved to [dependencies] | pages/Billing/InvoiceDetail.tsx, InvoiceComposer.tsx, InvoiceList.tsx, services/latex.rs, storage/templates/invoice.tex, commands/billing.rs, Cargo.toml | cargo test: 33/33, pnpm build: PASS (469 modules, 482kb) |
 | Jul 19 2026 | S09: Expansion roadmap (planning only, no code) — researched adalat.ai + visiocyber.ai; wrote specs/expansion-roadmap.md defining Track A Courtroom Intelligence (M25 transcription, M26 hearings/cause lists, M27 doc digitization, M28 research/summarization, M29 WhatsApp chatbot) and Track B Startup Legal SaaS (M30 Startup Legal OS, M31 DP Audit Engine → Phase 2.5, M32 Compliance & AI Governance, M33 Assessments); added Phases 2.5/8/9 to TASKS.md; 4 architecture decisions logged | specs/expansion-roadmap.md (new), TASKS.md, PROGRESS.md, SESSION-LOG/2026-07-19-S09-expansion-roadmap.md | No code changed — tests unaffected (33/33 as of S08) |
+| Aug 9 2026 | S18b: M5 Step 3c — the portal API. `portal/backend/` FastAPI: OTP login (6-digit, bcrypt-hashed, 10-min expiry, 5 attempts then dead, new code kills the old), RS256 JWT, rotating refresh tokens with family-wide revocation on reuse, and every read route in spec §13. Four independent locks on privilege — RLS via `SET LOCAL`, three roles across three connections, a `client_id` filter in every query, and Pydantic models with `extra="forbid"` — each tested with the others disabled. New roles/tables: `0003_portal_auth.sql` (the login path could not run under either existing portal role), `0004_refresh_tokens.sql`. RLS gate extended 10 → 12 assertions and its exemption list derived from grants rather than table names. **Bug found by its own test:** the 401 in verify-otp was raised inside the transaction, rolling back the attempt counter and leaving the OTP brute-forceable | portal/backend/{pyproject.toml,README.md,app/**,tests/**}, server/migrations/{0003_portal_auth,0004_refresh_tokens}.sql, server/tests/rls_test.sql, server/SCHEMA.md, .gitignore | portal: 48/48 vs live PostgreSQL, RLS gate: 12/12 (negative-control verified) |
 | Aug 9 2026 | S18: M5 Step 3b — the transport. **Server:** `server/src/{main,types,mirror}.rs` — Axum routes, constant-time token check, refuses to start on a short token, `deny_unknown_fields` on every wire type, money as exact NUMERIC. **Keel:** `services/sync_engine/transport.rs` (push/pull/ack, `build_entry` returns None for withheld rows, `order_for_push`), `record_sync_run`, `note_change`; `commands/sync.rs::trigger_sync` wired for real + `set_sync_token`; outbox enqueue added to every remaining write path (matters, clients, deadlines, IP assets, invoices, payments) — the S16 deferral, now closed. Keychain generalised to hold session and sync tokens without collision. **Gap the e2e test found:** nothing projected the client row that every mirror FK points at — added `ClientPublic` + migration `0012_outbox_client.sql`. **Deck:** write-only sync token field, honest "Sync now" messaging (a run that failed a leg no longer reports "complete"). New `tests/sync_e2e.rs` — 4 tests, skipped without a server, run green against live PostgreSQL | server/src/*, src-tauri/src/services/sync_engine/{mod,transport,projection}.rs, services/keychain.rs, commands/{sync,matters,deadlines,ip_assets,billing}.rs, db/queries/matters.rs, db/migrations/0012_outbox_client.sql, tests/sync_e2e.rs, lib.rs, db/SCHEMA.md, src/pages/Portal/PortalHome.tsx, src/lib/{tauri,ipc-types}.ts, src/stores/sync.ts, screenshots/* | cargo test: 156/156 (was 146), sync e2e: 4/4 vs live PostgreSQL, pnpm build: PASS |
 | Aug 6 2026 | S17: Deck surface for M5. `pages/Portal/PortalHome.tsx` (Client access + Sync tabs), `lib/permissions.ts` mirroring rbac.rs for UI gating, share/unshare toggle on document rows with live SHARED badge, verify action + client-visibility toggle on the docket timeline, nav gains Renewals and Portal with fixed active-state matching. Exposed `is_client_visible` on the Deadline IPC type (row had it, wire type did not). Screenshot harness extended to 12 views | src/pages/Portal/PortalHome.tsx, src/lib/permissions.ts, src/pages/Documents/DocumentList.tsx, src/pages/Dockets/IPAssetRecord.tsx, src/components/shell/AppShell.tsx, src/App.tsx, src/lib/ipc-types.ts, src-tauri/src/commands/deadlines.rs, src-tauri/src/db/queries/deadlines.rs, screenshots/* | cargo test: 146/146, pnpm build: PASS |
 | Aug 6 2026 | S16: M5 Step 3a — sync engine. `services/sync_engine/projection.rs`: MatterPublic/DeadlinePublic/IpAssetPublic/InvoicePublic, plain functions (not From), `Withheld` for drafts and non-visible deadlines, money rounded to 2dp; 12 tests that serialise to JSON and assert sensitive values are absent, plus a guard test that fails if a time-entry projection is ever added. `services/sync_engine/mod.rs`: outbox with collapsing enqueue and Delete-supersedes-Upsert, retry/backoff capped at 1h, sync state with enable-requires-URL; 11 tests. `commands/sync.rs` rewritten: 11 commands. Also added `is_client_visible` to DeadlineRow (column existed since 0009 but was never selected) | services/sync_engine/{mod,projection}.rs, commands/sync.rs, db/queries/deadlines.rs, services/mod.rs, lib.rs, src/lib/{ipc-types,tauri}.ts, src/stores/sync.ts | cargo test: 146/146 (was 122), pnpm build: PASS |

@@ -16,6 +16,8 @@ authoritative. See `src-tauri/src/db/SCHEMA.md` for the canonical schema and
 |---|---|---|
 | `0001_mirror.sql` | `mirror.*` projection tables + `inbound.*` client-authored queue | Phase 2 M5 |
 | `0002_rls.sql` | Row-level security policies, `portal_reader` / `portal_writer` / `sync_writer` roles | Phase 2 M5 |
+| `0003_portal_auth.sql` | `portal_auth` role — the login path. Neither existing portal role can resolve an email or touch an OTP challenge | Phase 2 M5 |
+| `0004_refresh_tokens.sql` | `inbound.refresh_tokens` — rotating refresh tokens with reuse detection | Phase 2 M5 |
 
 ---
 
@@ -42,7 +44,8 @@ without joining. A join inside a policy is a policy that can be tricked.
 |---|---|---|
 | `portal_reader` | `SELECT` on `mirror.*` only | The portal's read connection. Structurally incapable of mutating the mirror |
 | `portal_writer` | `SELECT, INSERT` on `inbound.client_uploads` and `inbound.invoice_disputes` only | Client-authored writes. **No grant on `inbound.otp_challenges`** — a leaked portal credential must not reach OTP hashes |
-| `sync_writer` | Full DML on both schemas | The sync server, reached only from the desktop over mTLS |
+| `portal_auth` | `SELECT/INSERT/UPDATE/DELETE` on `inbound.otp_challenges` and `inbound.refresh_tokens`; `SELECT` on `mirror.portal_users` plus `UPDATE (last_login_at)` | The login path only. Deliberately narrow: a compromised auth connection yields the client roster and **nothing about the firm's work** |
+| `sync_writer` | Full DML on both schemas | The sync server, reached only from the desktop |
 
 Neither portal role owns any table, so `FORCE ROW LEVEL SECURITY` applies to
 them. FORCE is set anyway so an ownership change cannot silently disable
@@ -231,8 +234,30 @@ The desktop refuses anything not `scan_status = 'Clean'`.
 | `consumed_at` | TIMESTAMPTZ | |
 | `created_at` | TIMESTAMPTZ NOT NULL DEFAULT now() | |
 
-**No portal role has any grant on this table.** It is protected by absence of
-privilege rather than by RLS, and `tests/rls_test.sql` Test 5 asserts that.
+**Only `portal_auth` has any grant on this table** (0003). `portal_reader` and
+`portal_writer` have none, so a leaked portal credential cannot reach OTP hashes,
+and `tests/rls_test.sql` Test 5 asserts that. There is no RLS here: the table
+holds no client-scoped rows, and a challenge is keyed by an address that has not
+yet been proven to belong to anyone.
+
+### `inbound.refresh_tokens`
+| Column | Type | Notes |
+|---|---|---|
+| `id` | TEXT PK | |
+| `portal_user_id` | TEXT NOT NULL | FK → `mirror.portal_users(id)` ON DELETE CASCADE |
+| `client_id` | TEXT NOT NULL | FK → `mirror.clients(id)` ON DELETE CASCADE |
+| `token_hash` | TEXT NOT NULL UNIQUE | SHA-256. High-entropy random value, so a plain hash suffices where the OTP needs bcrypt |
+| `family_id` | TEXT NOT NULL | Every token minted from one login. Reuse kills the family, not merely the token presented |
+| `expires_at` | TIMESTAMPTZ NOT NULL | 7 days |
+| `used_at` / `revoked_at` / `replaced_by` | | Rotation chain |
+| `created_at` | TIMESTAMPTZ NOT NULL DEFAULT now() | |
+
+Presenting a spent token means either a replay or a theft the legitimate client
+has already rotated past. Nothing can tell those apart, so the whole family is
+revoked and the client logs in again.
+
+**Only `portal_auth` has any grant here.** A session credential is not client
+data, and the connection that serves matters has no business reading one.
 
 ---
 
