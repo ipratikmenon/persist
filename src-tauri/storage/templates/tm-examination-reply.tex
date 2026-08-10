@@ -1,0 +1,93 @@
+% Reply to Examination Report — Trade Marks Registry, India
+%
+% Template variables: {{KEY}} — substituted by services/latex.rs.
+% The declared fields, their types and their validation live in
+% tm-examination-reply.json. Keep the two in step: a test fails if they drift.
+%
+% Statutory context: Trade Marks Act 1999 s.18(4) / Rule 33 of the Trade Marks
+% Rules 2017. Grounds of objection are ordinarily raised under s.9 (absolute)
+% and s.11 (relative).
+
+\documentclass[12pt,a4paper]{article}
+
+\input{_shared/persist-base}
+
+\plainfooter{{{FIRM_NAME}}}
+
+\begin{document}
+\color{textPrimary}
+
+\letterhead{{{FIRM_NAME}}}{{{FIRM_ADDRESS}}}{{{FIRM_CONTACT}}}
+
+\begin{flushright}
+  {\small Date: {{REPLY_DATE}}}
+\end{flushright}
+
+\vspace{2mm}
+
+\noindent
+{\small
+The Registrar of Trade Marks\\
+Trade Marks Registry, {{REGISTRY_OFFICE}}\\
+}
+
+\vspace{4mm}
+
+\begin{center}
+  {\bfseries REPLY TO EXAMINATION REPORT}
+\end{center}
+
+\vspace{2mm}
+
+\noindent
+\begin{tabular}{@{}L{4.2cm}L{10.5cm}@{}}
+  {\bfseries Application No.}  & {{TM_NUMBER}} \\[3pt]
+  {\bfseries Trade mark}       & {{TM_MARK}} \\[3pt]
+  {\bfseries Class}            & {{TM_CLASS}} \\[3pt]
+  {\bfseries Applicant}        & {{APPLICANT_NAME}} \\[3pt]
+  {\bfseries Examination Report dated} & {{EXAM_REPORT_DATE}} \\
+\end{tabular}
+
+\vspace{4mm}
+{\color{borderGray}\rule{\textwidth}{0.4pt}}
+\vspace{3mm}
+
+\noindent Sir/Madam,
+
+\vspace{2mm}
+
+\noindent
+With reference to the Examination Report dated {{EXAM_REPORT_DATE}} issued in
+respect of the above application, the Applicant respectfully submits as follows.
+
+\persistsection{Submissions}
+
+\noindent {{SUBMISSIONS}}
+
+\persistsection{Grounds relied upon}
+
+\noindent {{GROUNDS_TEXT}}
+
+% Shown only where the Applicant relies on prior use. The manifest makes the
+% date conditional on the same choice, so this paragraph is never orphaned.
+{{PRIOR_USE_BLOCK}}
+
+\persistsection{Prayer}
+
+\noindent
+In view of the submissions above, it is respectfully prayed that the objection(s)
+raised in the Examination Report be waived and the application be advertised in
+the Trade Marks Journal in accordance with the provisions of the Trade Marks
+Act, 1999.
+
+\vspace{6mm}
+
+\noindent
+\begin{tabular}{@{}L{9cm}L{6cm}@{}}
+  & {\small Yours faithfully,} \\[10pt]
+  & {\small For \textbf{{{FIRM_NAME}}}} \\[18pt]
+  & {\small {{ATTORNEY_NAME}}} \\
+  & {\footnotesize Agent for the Applicant} \\
+\end{tabular}
+
+\end{document}

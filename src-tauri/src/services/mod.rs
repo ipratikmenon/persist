@@ -5,3 +5,4 @@ pub mod deadline_watcher;
 pub mod keychain;
 pub mod latex;
 pub mod sync_engine;
+pub mod templates;

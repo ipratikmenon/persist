@@ -1,0 +1,111 @@
+% Persist — shared document preamble.
+%
+% Every template begins with \input{_shared/persist-base}. The PRD lists
+% nineteen templates for the Smart Form Compiler; each carrying its own copy of
+% the font, colour and geometry setup would mean nineteen places to change when
+% the firm's letterhead does, and nineteen chances to miss one.
+%
+% ENGINE: XeLaTeX. Not pdfLaTeX — see src-tauri/KEEL-RULES.md.
+%
+% Templates get: A4 geometry, Noto (with Devanagari declared), the Persist
+% colour tokens, the L/C/R column types, and \firmfooter. They add only their
+% own content.
+
+\usepackage[top=20mm, bottom=20mm, left=22mm, right=22mm]{geometry}
+
+% ── Fonts ────────────────────────────────────────────────────────────────────
+% Noto covers ₹ (U+20B9) and Devanagari. pdfLaTeX fails outright on the former.
+\usepackage{fontspec}
+\setmainfont{Noto Serif}[
+  UprightFont = *,
+  BoldFont    = * Bold,
+  ItalicFont  = * Italic,
+]
+\setsansfont{Noto Sans}
+\setmonofont{Noto Sans Mono}[Scale=MatchLowercase]
+% Declared so a Hindi party name or title renders rather than dropping to tofu.
+% Devanagari needs its own shaper, not merely a font that has the glyphs.
+\newfontfamily\devanagarifont{Noto Serif Devanagari}[Script=Devanagari]
+% Wrap Devanagari runs: {\hindi ...}
+\newcommand{\hindi}[1]{{\devanagarifont #1}}
+
+% ── Packages ─────────────────────────────────────────────────────────────────
+\usepackage{microtype}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{array}
+\usepackage{longtable}
+\usepackage{colortbl}
+\usepackage{xcolor}
+\usepackage{graphicx}
+\usepackage{fancyhdr}
+\usepackage{multirow}
+\usepackage{hhline}
+\usepackage{calc}
+\usepackage{enumitem}
+\usepackage[hidelinks]{hyperref}
+\usepackage{parskip}
+
+% ── Colours — mirror src/design-system/tokens.ts ─────────────────────────────
+% A client sees the invoice and the portal side by side; they should look like
+% the same firm.
+\definecolor{accentBlue}{RGB}{74,101,128}     % --color-accent-primary
+\definecolor{terracotta}{RGB}{181,96,74}      % --color-accent-secondary
+\definecolor{textPrimary}{RGB}{44,44,42}      % --color-text-primary
+\definecolor{textSecondary}{RGB}{107,104,98}  % --color-text-secondary
+\definecolor{textTertiary}{RGB}{154,149,144}  % --color-text-tertiary
+\definecolor{borderGray}{RGB}{226,221,216}    % --color-border
+\definecolor{bgSecondary}{RGB}{240,236,229}   % --color-bg-secondary
+\definecolor{statusGreen}{RGB}{74,124,89}     % --color-status-clear
+\definecolor{statusUrgent}{RGB}{192,57,43}    % --color-status-urgent
+
+% ── Typography ───────────────────────────────────────────────────────────────
+\renewcommand{\familydefault}{\rmdefault}
+\setlength{\parindent}{0pt}
+
+% ── Fixed-width column types ─────────────────────────────────────────────────
+\newcolumntype{R}[1]{>{\raggedleft\arraybackslash}p{#1}}
+\newcolumntype{L}[1]{>{\raggedright\arraybackslash}p{#1}}
+\newcolumntype{C}[1]{>{\centering\arraybackslash}p{#1}}
+
+% ── Firm footer ──────────────────────────────────────────────────────────────
+% Takes the firm identity as arguments rather than reading {{PLACEHOLDERS}}:
+% a shared file that assumed particular placeholder names would force every
+% template to declare them, whether or not the document shows them.
+%   \firmfooter{name}{gstin}{pan}
+\newcommand{\firmfooter}[3]{%
+  \pagestyle{fancy}%
+  \fancyhf{}%
+  \renewcommand{\headrulewidth}{0pt}%
+  \fancyfoot[C]{\footnotesize\color{textSecondary}
+    Page \thepage\ — #1 — GSTIN: #2 — PAN: #3}%
+}
+
+% A footer for documents that are not invoices: no tax identifiers, just the
+% firm and the page.
+%   \plainfooter{name}
+\newcommand{\plainfooter}[1]{%
+  \pagestyle{fancy}%
+  \fancyhf{}%
+  \renewcommand{\headrulewidth}{0pt}%
+  \fancyfoot[C]{\footnotesize\color{textSecondary} Page \thepage\ — #1}%
+}
+
+% ── Letterhead ───────────────────────────────────────────────────────────────
+%   \letterhead{firm name}{address}{contact line}
+\newcommand{\letterhead}[3]{%
+  {\LARGE\bfseries\color{accentBlue} #1}\par
+  \vspace{2pt}
+  {\small\color{textSecondary} #2}\par
+  {\small\color{textSecondary} #3}\par
+  \vspace{2mm}
+  {\color{borderGray}\rule{\textwidth}{0.4pt}}
+  \vspace{4mm}
+}
+
+% ── Section heading in the firm's style ──────────────────────────────────────
+\newcommand{\persistsection}[1]{%
+  \vspace{3mm}
+  {\small\bfseries\color{textSecondary} \MakeUppercase{#1}}\par
+  \vspace{1mm}
+}

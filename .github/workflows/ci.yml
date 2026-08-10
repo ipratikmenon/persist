@@ -1,0 +1,156 @@
+name: CI
+
+# Why this exists
+#
+# Three fatal faults in the LaTeX pipeline survived a green test suite because
+# nothing ever ran the engine — it was not installed anywhere the tests ran. A
+# suite that skips its most important tests is worse than no suite, because it
+# reports success.
+#
+# So: TeX Live and PostgreSQL are installed here, and the jobs fail if the
+# tests that need them are skipped rather than run.
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  keel:
+    name: Keel (Rust)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Tauri needs GTK/WebKit to build on Linux even for `cargo test --lib`.
+      - name: System dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev \
+            librsvg2-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev
+
+      # XeLaTeX and Noto. Without these the compilation tests skip, which is
+      # precisely how the ampersand and rupee faults reached the branch.
+      - name: TeX Live
+        run: |
+          sudo apt-get install -y --no-install-recommends \
+            texlive-latex-base texlive-latex-recommended texlive-latex-extra \
+            texlive-fonts-recommended texlive-xetex fonts-noto-core
+          xelatex --version | head -1
+          fc-list :charset=20B9 family | grep -q "Noto Serif" \
+            || { echo "::error::Noto Serif lacks the rupee glyph"; exit 1; }
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      # PERSIST_REQUIRE_LATEX turns a silent skip into a failure. Grepping the
+      # output would not work: cargo captures test stdout, so the skip notice
+      # never reaches the log.
+      - name: Test
+        working-directory: src-tauri
+        env:
+          PERSIST_REQUIRE_LATEX: "1"
+        run: cargo test --lib
+
+      - name: Clippy
+        working-directory: src-tauri
+        run: cargo clippy --lib --all-targets -- -D warnings
+        continue-on-error: true # advisory until the existing warnings are cleared
+
+  deck:
+    name: Deck (React)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Build
+        run: pnpm build
+
+  portal:
+    name: Portal API (FastAPI)
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: pgpass
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports: ["5432:5432"]
+
+    env:
+      PGHOST: localhost
+      PGUSER: postgres
+      PGPASSWORD: pgpass
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Apply the mirror schema
+        run: |
+          createdb persist_portal_test
+          for m in 0001_mirror 0002_rls 0003_portal_auth 0004_refresh_tokens; do
+            psql -v ON_ERROR_STOP=1 -d persist_portal_test -f "server/migrations/$m.sql"
+          done
+          psql -v ON_ERROR_STOP=1 -d persist_portal_test -c "
+            ALTER ROLE portal_reader WITH LOGIN PASSWORD 'readpass';
+            ALTER ROLE portal_writer WITH LOGIN PASSWORD 'writepass';
+            ALTER ROLE portal_auth   WITH LOGIN PASSWORD 'authpass';"
+
+      # The gate the M5 spec makes a precondition for any portal endpoint.
+      - name: RLS gate
+        run: |
+          RLS_TEST_DB=persist_rls_ci server/scripts/test-rls.sh
+
+      - uses: astral-sh/setup-uv@v5
+      - name: Install
+        working-directory: portal/backend
+        run: uv venv --python 3.11 && uv pip install -e . --group dev
+
+      - name: Test
+        working-directory: portal/backend
+        env:
+          PORTAL_TEST_READER_DSN: postgresql+asyncpg://portal_reader:readpass@localhost/persist_portal_test
+          PORTAL_TEST_WRITER_DSN: postgresql+asyncpg://portal_writer:writepass@localhost/persist_portal_test
+          PORTAL_TEST_AUTH_DSN: postgresql+asyncpg://portal_auth:authpass@localhost/persist_portal_test
+          PORTAL_TEST_ADMIN_DSN: postgresql+asyncpg://postgres:pgpass@localhost/persist_portal_test
+        # -p no:randomly and no -x: the suite must report every failure, and
+        # `--strict-markers` catches a skip that was meant to be a run.
+        run: .venv/bin/python -m pytest -q --strict-markers
+
+  sync-server:
+    name: Sync server (Rust)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: server
+      - name: Build
+        working-directory: server
+        run: cargo build
+      - name: Test
+        working-directory: server
+        run: cargo test

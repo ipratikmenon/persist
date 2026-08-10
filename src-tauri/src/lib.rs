@@ -153,6 +153,12 @@ pub fn run() {
                 services::deadline_watcher::start(pool.clone(), watcher_handle)
             );
 
+            // Warm the LaTeX engine off the critical path. A cold XeLaTeX run
+            // spends ~14s building its font cache; that cost is unavoidable
+            // once per machine, but an attorney watching a blank preview pane
+            // is the wrong moment to pay it.
+            tauri::async_runtime::spawn(services::latex::warm_up());
+
             // Start the abandonment watcher. Polls every 30 minutes and raises
             // the L1/L2/L3/L4 escalation ladder on statutory deadlines. A missed
             // statutory IP deadline is usually irreversible, so this must run
@@ -239,6 +245,9 @@ pub fn run() {
             commands::sync::set_sync_enabled,
             commands::sync::set_sync_server,
             commands::sync::set_sync_token,
+            commands::drafting::list_templates,
+            commands::drafting::get_template,
+            commands::drafting::render_document,
             commands::sync::invite_portal_user,
             commands::sync::list_portal_users,
             commands::sync::revoke_portal_user,

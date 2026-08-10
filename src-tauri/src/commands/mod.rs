@@ -4,6 +4,7 @@ pub mod billing;
 pub mod cascade;
 pub mod deadlines;
 pub mod documents;
+pub mod drafting;
 pub mod ip_assets;
 pub mod matters;
 pub mod sync;

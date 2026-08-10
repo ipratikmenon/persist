@@ -1,0 +1,126 @@
+{
+  "id": "tm-examination-reply",
+  "name": "Reply to Examination Report",
+  "category": "IP / Trademark",
+  "version": 1,
+  "revised": "2026-08-10",
+  "authority": "Trade Marks Registry, India — s.18(4) Trade Marks Act 1999, Rule 33 Trade Marks Rules 2017",
+  "description": "Response to an Examination Report issued by the Trade Marks Registry. Matter details are pre-filled; the attorney supplies the submissions and the grounds relied upon.",
+  "fields": [
+    {
+      "key": "FIRM_NAME",
+      "label": "Firm name",
+      "kind": { "type": "computed" }
+    },
+    {
+      "key": "FIRM_ADDRESS",
+      "label": "Firm address",
+      "kind": { "type": "computed" }
+    },
+    {
+      "key": "FIRM_CONTACT",
+      "label": "Firm contact line",
+      "kind": { "type": "computed" }
+    },
+    {
+      "key": "ATTORNEY_NAME",
+      "label": "Signing attorney",
+      "kind": { "type": "text", "maxLength": 120 },
+      "autofill": "matter.responsibleAttorney",
+      "help": "The agent of record who signs the reply."
+    },
+
+    {
+      "key": "REPLY_DATE",
+      "label": "Date of this reply",
+      "kind": { "type": "date", "notBefore": "EXAM_REPORT_DATE" },
+      "help": "Cannot be earlier than the Examination Report."
+    },
+    {
+      "key": "REGISTRY_OFFICE",
+      "label": "Registry office",
+      "kind": {
+        "type": "select",
+        "options": [
+          { "value": "Delhi",     "label": "Delhi" },
+          { "value": "Mumbai",    "label": "Mumbai" },
+          { "value": "Kolkata",   "label": "Kolkata" },
+          { "value": "Chennai",   "label": "Chennai" },
+          { "value": "Ahmedabad", "label": "Ahmedabad" }
+        ]
+      },
+      "autofill": "matter.forum"
+    },
+
+    {
+      "key": "TM_NUMBER",
+      "label": "Application number",
+      "kind": { "type": "digits", "length": 7 },
+      "autofill": "ipAsset.applicationNumber",
+      "help": "Seven digits, as allotted by the Registry."
+    },
+    {
+      "key": "TM_MARK",
+      "label": "Trade mark",
+      "kind": { "type": "text", "maxLength": 200 },
+      "autofill": "ipAsset.title"
+    },
+    {
+      "key": "TM_CLASS",
+      "label": "Class",
+      "kind": { "type": "text", "maxLength": 60 },
+      "autofill": "ipAsset.classes",
+      "help": "Nice classification, e.g. 3 or 9, 42."
+    },
+    {
+      "key": "APPLICANT_NAME",
+      "label": "Applicant",
+      "kind": { "type": "text", "maxLength": 200 },
+      "autofill": "client.name"
+    },
+    {
+      "key": "EXAM_REPORT_DATE",
+      "label": "Examination Report dated",
+      "kind": { "type": "date" }
+    },
+
+    {
+      "key": "SUBMISSIONS",
+      "label": "Submissions",
+      "kind": { "type": "multiline", "maxWords": 1500 },
+      "help": "The substance of the reply. The standard opening and prayer are added by the template."
+    },
+    {
+      "key": "GROUNDS",
+      "inputOnly": true,
+      "label": "Principal ground relied upon",
+      "kind": {
+        "type": "select",
+        "options": [
+          { "value": "PriorUse",     "label": "Prior use and acquired distinctiveness" },
+          { "value": "NoConfusion",  "label": "No likelihood of confusion" },
+          { "value": "Distinctive",  "label": "Inherently distinctive" },
+          { "value": "Consent",      "label": "Consent / coexistence on record" }
+        ]
+      }
+    },
+    {
+      "key": "GROUNDS_TEXT",
+      "label": "Grounds",
+      "kind": { "type": "multiline", "maxWords": 1000 }
+    },
+    {
+      "key": "FIRST_USE_DATE",
+      "inputOnly": true,
+      "label": "Date of first use",
+      "kind": { "type": "date" },
+      "shownWhen": { "field": "GROUNDS", "equals": ["PriorUse"] },
+      "help": "Required only where prior use is relied upon."
+    },
+    {
+      "key": "PRIOR_USE_BLOCK",
+      "label": "Prior use paragraph",
+      "kind": { "type": "computed" }
+    }
+  ]
+}

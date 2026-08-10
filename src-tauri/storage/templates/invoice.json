@@ -1,0 +1,32 @@
+{
+  "id": "invoice",
+  "name": "Tax Invoice",
+  "category": "Billing",
+  "version": 2,
+  "revised": "2026-08-10",
+  "authority": "CGST Act 2017, Rule 46 — tax invoice particulars",
+  "description": "GST-compliant invoice for legal services under SAC 998212. Every field is assembled by Keel from the invoice record; nothing here is typed by hand.",
+  "fields": [
+    { "key": "INVOICE_ID"      , "label": "Invoice number"    , "kind": { "type": "computed" } },
+    { "key": "INVOICE_DATE"    , "label": "Invoice date"      , "kind": { "type": "computed" } },
+    { "key": "DUE_DATE"        , "label": "Due date"          , "kind": { "type": "computed" } },
+    { "key": "FIRM_NAME"       , "label": "Firm name"         , "kind": { "type": "computed" } },
+    { "key": "FIRM_GSTIN"      , "label": "Firm GSTIN"        , "kind": { "type": "computed" } },
+    { "key": "FIRM_ADDRESS"    , "label": "Firm address"      , "kind": { "type": "computed" } },
+    { "key": "FIRM_PAN"        , "label": "Firm PAN"          , "kind": { "type": "computed" } },
+    { "key": "FIRM_BANK"       , "label": "Remittance details", "kind": { "type": "computed" } },
+    { "key": "CLIENT_NAME"     , "label": "Client name"       , "kind": { "type": "computed" } },
+    { "key": "CLIENT_GSTIN"    , "label": "Client GSTIN"      , "kind": { "type": "computed" } },
+    { "key": "CLIENT_ADDRESS"  , "label": "Client address"    , "kind": { "type": "computed" } },
+    { "key": "LINE_ITEMS_TABLE", "label": "Line items"        , "kind": { "type": "computed" } },
+    { "key": "SUBTOTAL"        , "label": "Subtotal"          , "kind": { "type": "computed" } },
+    { "key": "CGST_AMOUNT"     , "label": "CGST"              , "kind": { "type": "computed" } },
+    { "key": "SGST_AMOUNT"     , "label": "SGST"              , "kind": { "type": "computed" } },
+    { "key": "IGST_AMOUNT"     , "label": "IGST"              , "kind": { "type": "computed" } },
+    { "key": "TOTAL"           , "label": "Total"             , "kind": { "type": "computed" } },
+    { "key": "AMOUNT_IN_WORDS" , "label": "Amount in words"   , "kind": { "type": "computed" } },
+    { "key": "SAC_CODE"        , "label": "SAC code"          , "kind": { "type": "computed" } },
+    { "key": "GST_TYPE"        , "label": "GST treatment"     , "kind": { "type": "computed" } },
+    { "key": "NOTES"           , "label": "Notes"             , "kind": { "type": "computed" } }
+  ]
+}

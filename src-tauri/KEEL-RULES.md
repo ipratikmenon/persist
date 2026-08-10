@@ -207,6 +207,47 @@ Never hardcode paths.
 missing glyph or a broken font setup — `services/latex.rs` has compilation tests
 that run the real engine against the real template with hostile values.
 
+## Template Registry
+
+A template is two files in `storage/templates/`:
+
+```
+invoice.tex     the document
+invoice.json    what it declares about itself
+_shared/persist-base.tex   fonts, colours, geometry, letterhead macros
+```
+
+Never add a `.tex` without its `.json`. A template with no manifest can never be
+offered by the form compiler, and a test fails on it.
+
+**The manifest declares every field**: key, label, kind, validation,
+conditional visibility, and where Deck should autofill it from. Deck builds the
+form from this; Keel validates against it again on submit. Adding a template is
+adding two files, not writing Rust.
+
+**Field kinds** are `text`, `multiline`, `date`, `digits`, `number`, `select`,
+`checkbox`, `computed`. Validation is declarative rather than regex so the error
+an attorney reads is "must be exactly 7 digits", not "must match `^[0-9]{7}$`".
+
+- `computed` — filled by Keel, never shown in the form.
+- `inputOnly` — collected from the attorney but not printed; it drives a
+  `computed` field. The grounds selector on an examination reply is the example.
+
+**A manifest and its template must not drift.** Every `{{KEY}}` the template uses
+must be declared, and every declared field must be used unless it is `inputOnly`.
+There is a test over the whole shipped library.
+
+**Compile modes:** `CompileMode::Draft` is one pass, for the live preview only.
+`CompileMode::Final` is two, for anything an attorney signs or sends. Never
+render a filing in Draft.
+
+**Warm the engine at startup.** `latex::warm_up()` is spawned in `lib.rs`. A cold
+XeLaTeX run spends ~14s building its font cache against ~1.4s warm; that cost is
+unavoidable once per machine, but an attorney watching a blank preview is the
+wrong moment to pay it.
+
+---
+
 ---
 
 ## AI Router

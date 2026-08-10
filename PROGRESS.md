@@ -12,8 +12,8 @@
 
 **Phase:** 2 — Billing & Client Portal
 **Week:** 3
-**Active module:** LaTeX pipeline repaired — invoice PDFs now actually generate. Next: Step 3d (object storage, email delivery) or Step 4 (portal frontend).
-**Last session completed:** S19 — 2026-08-10 — LaTeX/template pipeline: engine switched to XeLaTeX, escaping made unforgettable, three blocking defects fixed. cargo test 174/174 including real compilation.
+**Active module:** M9 prerequisites done — template registry, shared preamble, compile modes, CI. M9 itself is now buildable without Rust changes per template.
+**Last session completed:** S20 — 2026-08-10 — M9 prerequisites: template manifests + declarative validation, shared preamble, draft/final modes, engine warm-up, drafting commands, second real template, and the repo's first CI workflow. cargo test 203/203.
 **Last updated:** 2026-08-10
 
 ---
@@ -22,53 +22,58 @@
 
 > Fill this section at the start of a session. Clear it when done.
 
-**Nothing in progress.** S19 repaired the LaTeX pipeline. On
-`claude/new-session-dbqe5o`, **nothing pushed to main**.
+**Nothing in progress.** S20 built the substrate M9 sits on. On
+`claude/new-session-dbqe5o`.
 
-**Invoice PDF generation had never worked.** Three independent faults, each
-fatal on its own, all invisible because no test ever ran the engine — and
-pdfLaTeX was not installed in CI or the dev container:
+The problem it solves: generating a document meant writing Rust.
+`generate_invoice_pdf` hardcodes twenty-one field names, and the PRD lists
+**nineteen** templates for the initial library. Nineteen bespoke command
+functions is not a plan, and it puts the admin's job — update a template when a
+registry changes its format — behind a Rust release.
 
-  ✅ **The firm's own name broke compilation.** `firm_name` defaults to
-     `'Persistas & Partners'` and `&` is LaTeX's alignment character. Escaping
-     was applied to one field out of twenty-one.
-  ✅ **The rupee sign broke compilation.** pdfLaTeX fails outright on U+20B9,
-     which the template hardcodes and every line item carries.
-  ✅ **The documents row violated a foreign key.** `generate_invoice_pdf` bound
-     the client id into `documents.matter_id`, which references `matters(id)` —
-     so the PDF was encrypted into the vault and *then* the row failed, leaving
-     an orphan.
+  ✅ **Template registry.** A template is now `<id>.tex` + `<id>.json`. The
+     manifest declares every field: key, label, kind, validation, conditional
+     visibility, and where Deck should autofill from. Adding a template is
+     adding two files.
+  ✅ **Declarative validation**, not regex — "must be exactly 7 digits", not
+     "must match `^[0-9]{7}$`". Covers the PRD's stated needs including the
+     cross-field rule (a hearing cannot precede its filing) and conditional
+     fields (prior-use grounds reveal a first-use date).
+  ✅ **A drift test over the whole shipped library.** Every `{{KEY}}` must be
+     declared and every declared field used. It caught two real bugs on its
+     first run — see below.
+  ✅ **Shared preamble** (`_shared/persist-base.tex`). Nineteen templates each
+     carrying the font, colour and geometry setup would be nineteen places to
+     change the letterhead and nineteen chances to miss one.
+  ✅ **Draft/Final compile modes.** Draft is one pass for the live preview;
+     Final is two, for anything signed or sent.
+  ✅ **Engine warm-up at startup.** Cold XeLaTeX is ~14s building its font
+     cache, ~1.4s warm. Unavoidable once per machine, but not while an attorney
+     watches a blank preview.
+  ✅ **Drafting commands** — `list_templates`, `get_template`, `render_document`.
+     A compile failure reaches the attorney as a sentence, never a LaTeX log.
+  ✅ **A second real template** — Reply to Examination Report (TM Registry),
+     with conditional grounds. Proof the machinery generalises past invoices.
+  ✅ **The repo's first CI workflow.** Keel with TeX Live, Deck, the portal
+     against real PostgreSQL, the RLS gate, and the sync server.
 
-What changed:
+**Two bugs the new drift test found in my own code:**
 
-  ✅ **Engine is now XeLaTeX**, with `fontspec` + Noto Serif. Handles ₹ and
-     Devanagari natively — the latter matters for Hindi filings, and switching
-     later with a template library in place would have been far more expensive.
-  ✅ **Escaping is no longer forgettable.** `compile_latex` takes
-     `HashMap<String, Field>`, and a `Field` is either `text` (escaped on the
-     way in) or `raw` (deliberate LaTeX). A bare string does not compile. The
-     old `latex_escape` is deleted, not deprecated.
-  ✅ **The old escaper corrupted backslashes silently** — it mapped `\` to
-     `\\`, a LaTeX line break, so "In re Bajaj\Auto" rendered across two lines
-     with a clean compile and no warning. Now `\textbackslash{}`.
-  ✅ **An unfilled placeholder is an error**, not `{{CLIENT_ADDRESS}}` printed
-     into a document that goes to a client. There was a test asserting the old
-     behaviour was correct; it is gone.
-  ✅ Two compilation passes (`longtable` needs it), 60s timeout, `-no-shell-escape`,
-     stdin closed, job names sanitised, and LaTeX's actual error surfaced instead
-     of a thousand-line log.
-  ✅ **Indian digit grouping** — `₹6,00,000.00`, not `₹600000.00`. It sits beside
-     `amount_in_words`, which already says "Lakh".
-  ✅ **Tests that compile the real template with hostile values.** Both original
-     faults were reproduced as negative controls before being trusted.
+  - `placeholders_in` mis-parsed `\textbf{{{KEY}}}` — a LaTeX brace wrapping a
+    placeholder. It anchored on the first `{{`, read the key as `{KEY`, and
+    found nothing. So `render` could not tell such a placeholder was unfilled,
+    and it would have printed into a client's PDF.
+  - The drift check had no way to express a field that is collected but not
+    printed — the grounds selector drives a computed paragraph. Added
+    `inputOnly` rather than loosening the check.
 
-⚠️ **The installer and CI now need `xelatex` + Noto.** There is no CI workflow in
-this repo yet; when one is added it needs `texlive-xetex fonts-noto-core`.
-`tauri.conf.json` sidecar bundling is still outstanding (B03).
+⚠️ **Sidecar bundling (B03) is still open.** `tauri.conf.json` must ship xelatex
+and Noto. It cannot be verified from here — it needs a real macOS/Windows build.
 
 ⚠️ **Still awaiting your review:** the M5 spec.
 
-Next: **M5 Step 3d** (object storage + email) or **Step 4** (portal frontend).
+Next: **M9 itself** (the Smart Form Compiler UI in Deck), **M5 Step 4** (portal
+frontend), or **M5 Step 3d** (object storage + email).
 
 ---
 
@@ -437,6 +442,12 @@ bets: M35, M36, M38.
 | Aug 2026 | Projection tests assert on serialised JSON, not struct fields | Checking fields only proves what we already know. Building a row with `INTERNAL_LEAK` in every unnamed column and asserting it is absent from the wire bytes proves what actually leaves |
 | Aug 2026 | A Delete in the outbox supersedes a pending Upsert | Otherwise an upsert queued before an un-share resurrects the row in the mirror. Re-queuing the same op collapses, so five edits before one sync are one push |
 | Aug 2026 | Enabling sync without a server URL is refused | A firm that believes sync is on and is wrong is worse off than one that sees an error |
+| Aug 2026 | A template is two files, not a Rust function | The PRD lists nineteen templates. Bespoke code per template puts the admin's job — update a template when a registry changes format — behind a release |
+| Aug 2026 | Validation is declarative, not regex | An attorney reads "must be exactly 7 digits", not "must match `^[0-9]{7}$`" |
+| Aug 2026 | Manifest strictness beats convenient JSON | serde cannot combine `flatten` with `deny_unknown_fields`. Nesting the kind object costs a little verbosity and keeps a typo'd `required` from silently producing an unvalidated filing |
+| Aug 2026 | `inputOnly` rather than a looser drift check | A field can be collected without being printed — the grounds selector drives a computed paragraph. Loosening the check to accommodate it would have lost the guarantee for every other field |
+| Aug 2026 | Draft renders still validate | A preview showing a document that could never be filed teaches the attorney to trust it |
+| Aug 2026 | `PERSIST_REQUIRE_LATEX` makes CI fail on a skipped engine test | A suite that skips its most important tests reports success while proving nothing — which is how three fatal faults reached a branch. Grepping output does not work; cargo captures test stdout |
 | Aug 2026 | XeLaTeX, never pdfLaTeX | ₹ is the immediate blocker — pdfLaTeX fails outright on U+20B9 — and Devanagari for Hindi filings is the one coming. Switching with one template in place is cheap; switching after M9 builds a template library would not be |
 | Aug 2026 | Template values are a `Field` type, not a `String` | Escaping as a call-site responsibility produced exactly one escaped field out of twenty-one. Making the unescaped path a distinct constructor (`Field::raw`) means forgetting is a compile error, and injection has one greppable origin |
 | Aug 2026 | An unfilled placeholder fails the render | The old behaviour printed `{{CLIENT_ADDRESS}}` into the PDF, and a test asserted that was correct. A template and its caller disagreeing is a bug in one of them, not something to ship to a client |
@@ -493,6 +504,7 @@ HETZNER_SYNC_URL=       # Sync server URL (Phase 2 M5)
 | Apr 17 2026 | S07: Phase 2 M4 Billing — spec written, migration 0006_billing.sql (5 tables), queries/billing.rs (5 tests), commands/billing.rs (13 cmds), lib.rs billing commands registered, tauri.ts billing wrappers, BillingHome/TimeTracker/InvoiceList/FirmSettingsPanel. Also: new spec files placed in specs/ (module-02-docketing, auth-rbac, hpas-integration, module-03-documents updated), PROGRESS.md reconciled | specs/*.md, 0006_billing.sql, queries/billing.rs, commands/billing.rs, pages/Billing/*.tsx | cargo test: 30/30, pnpm build: PASS (467 modules, 457kb) |
 | Apr 19 2026 | S08: Phase 2 M4 Billing UI complete — InvoiceDetail.tsx (back/actions/line items/GST panel/payment modal), InvoiceComposer.tsx (client→matter→entries→fixed-fee→GST type→live totals→create), InvoiceList wired (row click→detail, New Invoice→composer), latex.rs real impl (finds pdflatex, tempdir compile, 3 tests), invoice.tex GST-compliant template, client lookup added to generate_invoice_pdf, tempfile moved to [dependencies] | pages/Billing/InvoiceDetail.tsx, InvoiceComposer.tsx, InvoiceList.tsx, services/latex.rs, storage/templates/invoice.tex, commands/billing.rs, Cargo.toml | cargo test: 33/33, pnpm build: PASS (469 modules, 482kb) |
 | Jul 19 2026 | S09: Expansion roadmap (planning only, no code) — researched adalat.ai + visiocyber.ai; wrote specs/expansion-roadmap.md defining Track A Courtroom Intelligence (M25 transcription, M26 hearings/cause lists, M27 doc digitization, M28 research/summarization, M29 WhatsApp chatbot) and Track B Startup Legal SaaS (M30 Startup Legal OS, M31 DP Audit Engine → Phase 2.5, M32 Compliance & AI Governance, M33 Assessments); added Phases 2.5/8/9 to TASKS.md; 4 architecture decisions logged | specs/expansion-roadmap.md (new), TASKS.md, PROGRESS.md, SESSION-LOG/2026-07-19-S09-expansion-roadmap.md | No code changed — tests unaffected (33/33 as of S08) |
+| Aug 10 2026 | S20: M9 prerequisites. **Template registry** — `services/templates.rs`: manifests declare every field (kind, validation, conditional visibility, autofill source), so adding a template is two files rather than a Rust release; the PRD lists nineteen. **Declarative validation** over regex, for error messages an attorney can act on; covers cross-field date rules and conditional fields. **Drift test over the shipped library** — caught `placeholders_in` mis-parsing `\textbf{{{KEY}}}` (so an unfilled placeholder in that position would have printed into a client PDF) and the missing `inputOnly` concept. **Shared preamble** `_shared/persist-base.tex` via TEXINPUTS. **Draft/Final compile modes** and **engine warm-up** (cold XeLaTeX ~14s vs ~1.4s warm) for live preview. **Drafting commands** `list_templates`/`get_template`/`render_document`, with LaTeX errors never reaching an attorney. **Second real template** — TM Reply to Examination Report. **First CI workflow**, with `PERSIST_REQUIRE_LATEX` turning a silent engine skip into a failure | src-tauri/src/services/{templates.rs (new),latex.rs}, src-tauri/src/commands/drafting.rs (new), src-tauri/storage/templates/{_shared/persist-base.tex,invoice.json,tm-examination-reply.{tex,json}}, src-tauri/src/lib.rs, KEEL-RULES.md, .github/workflows/ci.yml (new) | cargo test: 203/203 (was 174), pnpm build: PASS |
 | Aug 10 2026 | S19: LaTeX/template pipeline repaired. Invoice PDF generation had never worked — three independent fatal faults (`&` in the seeded firm name, ₹ under pdfLaTeX, and a `documents.matter_id` FK violation that orphaned a vault file), none catchable by the string-only tests that existed. Engine switched to XeLaTeX + fontspec + Noto Serif (also unlocks Devanagari for Hindi filings). `compile_latex` now takes `HashMap<String, Field>` where `Field::text` escapes and `Field::raw` does not — a bare string no longer compiles, which is what made "escaped one field out of twenty-one" possible. Old `latex_escape` deleted: it mapped `\\` to a LaTeX line break and silently split citations across lines. Unfilled placeholders now fail instead of printing `{{CLIENT_ADDRESS}}` to a client. Added two passes, 60s timeout, `-no-shell-escape`, job-name sanitising, LaTeX-error extraction, and Indian digit grouping (`₹1,55,760.00`). New compilation tests run the real engine against the real template; both original faults reproduced as negative controls | src-tauri/src/services/latex.rs (rewritten), src-tauri/src/commands/billing.rs, src-tauri/storage/templates/invoice.tex, src-tauri/KEEL-RULES.md, CLAUDE.md | cargo test: 174/174 (was 170), incl. 4 real-compilation tests |
 | Aug 9 2026 | S18b: M5 Step 3c — the portal API. `portal/backend/` FastAPI: OTP login (6-digit, bcrypt-hashed, 10-min expiry, 5 attempts then dead, new code kills the old), RS256 JWT, rotating refresh tokens with family-wide revocation on reuse, and every read route in spec §13. Four independent locks on privilege — RLS via `SET LOCAL`, three roles across three connections, a `client_id` filter in every query, and Pydantic models with `extra="forbid"` — each tested with the others disabled. New roles/tables: `0003_portal_auth.sql` (the login path could not run under either existing portal role), `0004_refresh_tokens.sql`. RLS gate extended 10 → 12 assertions and its exemption list derived from grants rather than table names. **Bug found by its own test:** the 401 in verify-otp was raised inside the transaction, rolling back the attempt counter and leaving the OTP brute-forceable | portal/backend/{pyproject.toml,README.md,app/**,tests/**}, server/migrations/{0003_portal_auth,0004_refresh_tokens}.sql, server/tests/rls_test.sql, server/SCHEMA.md, .gitignore | portal: 48/48 vs live PostgreSQL, RLS gate: 12/12 (negative-control verified) |
 | Aug 9 2026 | S18: M5 Step 3b — the transport. **Server:** `server/src/{main,types,mirror}.rs` — Axum routes, constant-time token check, refuses to start on a short token, `deny_unknown_fields` on every wire type, money as exact NUMERIC. **Keel:** `services/sync_engine/transport.rs` (push/pull/ack, `build_entry` returns None for withheld rows, `order_for_push`), `record_sync_run`, `note_change`; `commands/sync.rs::trigger_sync` wired for real + `set_sync_token`; outbox enqueue added to every remaining write path (matters, clients, deadlines, IP assets, invoices, payments) — the S16 deferral, now closed. Keychain generalised to hold session and sync tokens without collision. **Gap the e2e test found:** nothing projected the client row that every mirror FK points at — added `ClientPublic` + migration `0012_outbox_client.sql`. **Deck:** write-only sync token field, honest "Sync now" messaging (a run that failed a leg no longer reports "complete"). New `tests/sync_e2e.rs` — 4 tests, skipped without a server, run green against live PostgreSQL | server/src/*, src-tauri/src/services/sync_engine/{mod,transport,projection}.rs, services/keychain.rs, commands/{sync,matters,deadlines,ip_assets,billing}.rs, db/queries/matters.rs, db/migrations/0012_outbox_client.sql, tests/sync_e2e.rs, lib.rs, db/SCHEMA.md, src/pages/Portal/PortalHome.tsx, src/lib/{tauri,ipc-types}.ts, src/stores/sync.ts, screenshots/* | cargo test: 156/156 (was 146), sync e2e: 4/4 vs live PostgreSQL, pnpm build: PASS |

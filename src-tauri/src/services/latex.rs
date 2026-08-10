@@ -102,6 +102,31 @@ pub fn escape(input: &str) -> String {
 // Public API
 // ---------------------------------------------------------------------------
 
+/// What a compilation is for.
+///
+/// The Smart Form Compiler re-renders on every keystroke-ish change (PRD §9.8
+/// asks for a live preview at 1–2s). A preview that is one pass out of date on
+/// column widths is fine; a filing is not.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum CompileMode {
+    /// One pass. For the live preview only — never for a document that leaves
+    /// the firm, because `longtable` widths and page references settle on the
+    /// second pass.
+    Draft,
+    /// Two passes. Everything an attorney signs or sends.
+    Final,
+}
+
+impl CompileMode {
+    fn passes(self) -> usize {
+        match self {
+            CompileMode::Draft => 1,
+            CompileMode::Final => PASSES,
+        }
+    }
+}
+
 /// Compile a template to PDF bytes. The caller decides where they are stored.
 ///
 /// `template_id` is the filename without extension inside the templates
@@ -110,6 +135,14 @@ pub async fn compile_latex(
     template_id: &str,
     fields: &HashMap<String, Field>,
 ) -> anyhow::Result<Vec<u8>> {
+    compile(template_id, fields, CompileMode::Final).await
+}
+
+pub async fn compile(
+    template_id: &str,
+    fields: &HashMap<String, Field>,
+    mode: CompileMode,
+) -> anyhow::Result<Vec<u8>> {
     let template_dir = find_templates_dir()?;
     let template_path = template_dir.join(format!("{template_id}.tex"));
 
@@ -117,7 +150,30 @@ pub async fn compile_latex(
         .with_context(|| format!("failed to read template: {}", template_path.display()))?;
 
     let rendered = render(&source, fields)?;
-    run_engine(template_id, &rendered).await
+    run_engine_in(template_id, &rendered, Some(&template_dir), mode.passes()).await
+}
+
+/// Compile a trivial document so the font cache is built before an attorney is
+/// waiting on it.
+///
+/// Measured on this machine: a cold XeLaTeX run takes ~14s while it builds the
+/// font cache, and ~1.4s warm. That cost lands once per machine, but landing it
+/// on the first real document — an attorney watching a blank preview pane —
+/// is the wrong time. Call it at startup, off the critical path.
+///
+/// Failure is logged and swallowed: the app must start on a machine with no
+/// TeX Live, and say so when a document is actually requested.
+pub async fn warm_up() {
+    const PROBE: &str = "\\documentclass{article}\n\
+                         \\usepackage{fontspec}\n\
+                         \\setmainfont{Noto Serif}\n\
+                         \\begin{document}₹\\end{document}\n";
+
+    let started = std::time::Instant::now();
+    match run_engine_in("warmup", PROBE, None, 1).await {
+        Ok(_) => log::info!("LaTeX engine warm after {:?}", started.elapsed()),
+        Err(e) => log::warn!("LaTeX warm-up skipped: {e:#}"),
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -135,7 +191,7 @@ fn render(source: &str, fields: &HashMap<String, Field>) -> anyhow::Result<Strin
         out = out.replace(&format!("{{{{{key}}}}}"), value.as_str());
     }
 
-    let mut unfilled = unfilled_placeholders(&out);
+    let mut unfilled = placeholders_in(&out);
     if !unfilled.is_empty() {
         unfilled.sort();
         unfilled.dedup();
@@ -148,11 +204,14 @@ fn render(source: &str, fields: &HashMap<String, Field>) -> anyhow::Result<Strin
     Ok(out)
 }
 
-/// Find `{{KEY}}` occurrences outside LaTeX comments.
+/// Every `{{KEY}}` a template refers to, outside LaTeX comments.
+///
+/// Used by the template registry to check a manifest against the template it
+/// describes, and by `render` to find the ones nobody filled.
 ///
 /// Comment lines are skipped because templates document their own variables in
 /// a `%` header, and that documentation must not fail the build it describes.
-fn unfilled_placeholders(source: &str) -> Vec<String> {
+pub fn placeholders_in(source: &str) -> Vec<String> {
     let mut found = Vec::new();
 
     for line in source.lines() {
@@ -162,28 +221,53 @@ fn unfilled_placeholders(source: &str) -> Vec<String> {
             Some(_) | None => line,
         };
 
-        let mut rest = code;
-        while let Some(start) = rest.find("{{") {
-            let after = &rest[start + 2..];
-            let Some(end) = after.find("}}") else { break };
-            let key = &after[..end];
-            if !key.is_empty()
-                && key.chars().all(|c| c.is_ascii_uppercase() || c == '_' || c.is_ascii_digit())
-            {
-                found.push(key.to_owned());
+        let bytes = code.as_bytes();
+        let mut i = 0;
+        while i + 4 <= bytes.len() {
+            if !(bytes[i] == b'{' && bytes[i + 1] == b'{') {
+                i += 1;
+                continue;
             }
-            rest = &after[end + 2..];
+
+            // Templates legitimately write `\textbf{{{KEY}}}` — a LaTeX brace
+            // wrapping a placeholder. Anchoring on the first `{{` would read the
+            // key as `{KEY` and miss it, so advance one brace at a time rather
+            // than jumping past the whole run.
+            let rest = &code[i + 2..];
+            let Some(end) = rest.find("}}") else { break };
+            let key = &rest[..end];
+
+            if is_placeholder_key(key) {
+                found.push(key.to_owned());
+                i += 2 + end + 2;
+            } else {
+                i += 1;
+            }
         }
     }
 
     found
 }
 
+/// Placeholder keys are SHOUTY_SNAKE. Anything else between braces is LaTeX.
+fn is_placeholder_key(key: &str) -> bool {
+    !key.is_empty()
+        && key.chars().all(|c| c.is_ascii_uppercase() || c == '_' || c.is_ascii_digit())
+}
+
 // ---------------------------------------------------------------------------
 // Engine subprocess
 // ---------------------------------------------------------------------------
 
-async fn run_engine(job_name: &str, source: &str) -> anyhow::Result<Vec<u8>> {
+/// Compile inline source. `search_dir` is prepended to TEXINPUTS so a template
+/// can `\input{_shared/persist-base}` — the .tex itself is written to a temp
+/// directory, so without this the shared preamble is unreachable.
+async fn run_engine_in(
+    job_name: &str,
+    source: &str,
+    search_dir: Option<&Path>,
+    passes: usize,
+) -> anyhow::Result<Vec<u8>> {
     let engine = find_engine()?;
 
     let tmp_dir = tempfile::tempdir().context("failed to create temp dir for LaTeX")?;
@@ -196,7 +280,7 @@ async fn run_engine(job_name: &str, source: &str) -> anyhow::Result<Vec<u8>> {
     std::fs::write(&tex_path, source).context("failed to write .tex source")?;
 
     let mut last_log = String::new();
-    for pass in 1..=PASSES {
+    for pass in 1..=passes {
         let child = tokio::process::Command::new(&engine)
             .args([
                 "-interaction=nonstopmode",
@@ -210,6 +294,7 @@ async fn run_engine(job_name: &str, source: &str) -> anyhow::Result<Vec<u8>> {
             ])
             // The engine must not inherit a terminal; without this a template
             // that asks a question waits for an answer nobody can give.
+            .envs(texinputs(search_dir))
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
@@ -233,7 +318,7 @@ async fn run_engine(job_name: &str, source: &str) -> anyhow::Result<Vec<u8>> {
 
         if !output.status.success() {
             bail!(
-                "LaTeX engine failed on pass {pass} of {PASSES}:\n{}",
+                "LaTeX engine failed on pass {pass} of {passes}:\n{}",
                 first_error(&last_log)
             );
         }
@@ -246,6 +331,28 @@ async fn run_engine(job_name: &str, source: &str) -> anyhow::Result<Vec<u8>> {
             first_error(&last_log)
         )
     })
+}
+
+
+/// TEXINPUTS for the child, or nothing when there is no shared directory.
+///
+/// The trailing empty entry is significant to kpathsea: it means "then the
+/// normal search path", so adding ours does not cut the engine off from its own
+/// packages.
+fn texinputs(search_dir: Option<&Path>) -> Vec<(String, String)> {
+    let Some(dir) = search_dir else { return Vec::new() };
+    let separator = if cfg!(windows) { ";" } else { ":" };
+    let existing = std::env::var("TEXINPUTS").unwrap_or_default();
+    Vec::from([(
+        "TEXINPUTS".to_owned(),
+        format!("{}{separator}{existing}{separator}", dir.display()),
+    )])
+}
+
+/// Compile inline source with no shared-template directory. Used by tests.
+#[cfg(test)]
+async fn run_engine(job_name: &str, source: &str) -> anyhow::Result<Vec<u8>> {
+    run_engine_in(job_name, source, None, 1).await
 }
 
 /// Pull the actual error out of a LaTeX log.
@@ -352,6 +459,12 @@ fn sidecar_path(binary: &str) -> Option<PathBuf> {
 // ---------------------------------------------------------------------------
 // Locating templates
 // ---------------------------------------------------------------------------
+
+/// Where the template library lives. Public so the drafting commands can
+/// enumerate it without duplicating the search order.
+pub fn templates_dir() -> anyhow::Result<PathBuf> {
+    find_templates_dir()
+}
 
 fn find_templates_dir() -> anyhow::Result<PathBuf> {
     if let Ok(dir) = std::env::var("PERSIST_TEMPLATES_DIR") {
@@ -482,6 +595,31 @@ mod tests {
         assert!(err.contains("CLIENT_ADDRESS"), "error must name the key: {err}");
     }
 
+    /// Templates write `\textbf{{{KEY}}}` — a LaTeX brace around a placeholder.
+    /// The scanner used to anchor on the first `{{`, read the key as `{KEY`,
+    /// and find nothing. `render` therefore could not tell that such a
+    /// placeholder was unfilled, and it would have printed into the PDF.
+    #[test]
+    fn a_placeholder_wrapped_in_latex_braces_is_still_found() {
+        assert_eq!(placeholders_in(r"\textbf{{{FIRM_GSTIN}}}"), vec!["FIRM_GSTIN"]);
+        assert_eq!(placeholders_in(r"\textit{{{AMOUNT_IN_WORDS}}}"), vec!["AMOUNT_IN_WORDS"]);
+        assert_eq!(
+            placeholders_in(r"\firmfooter{{{A}}}{{{B}}}{{{C}}}"),
+            vec!["A", "B", "C"],
+        );
+    }
+
+    #[test]
+    fn an_unfilled_placeholder_inside_latex_braces_fails_the_render() {
+        let err = render(r"\textbf{{{MISSING}}}", &HashMap::new()).unwrap_err();
+        assert!(err.to_string().contains("MISSING"), "{err}");
+    }
+
+    #[test]
+    fn latex_group_braces_are_not_mistaken_for_placeholders() {
+        assert!(placeholders_in(r"{\bfseries x} {{lowercase}} {\color{red} y}").is_empty());
+    }
+
     #[test]
     fn a_placeholder_documented_in_a_comment_does_not_fail_the_render() {
         // Templates document their own variables in a `%` header. That must not
@@ -563,10 +701,21 @@ Some other noise
 mod compile_tests {
     use super::*;
 
-    fn engine_available() -> bool {
+    /// Is there an engine to test against?
+    ///
+    /// Skipping keeps `cargo test` green on a machine with no TeX Live. But a
+    /// suite that skips its most important tests reports success while proving
+    /// nothing — which is exactly how three fatal faults reached a branch. CI
+    /// sets `PERSIST_REQUIRE_LATEX=1`, and then a missing engine is a failure.
+    pub(super) fn engine_available() -> bool {
         if find_engine().is_ok() {
             return true;
         }
+        assert!(
+            std::env::var("PERSIST_REQUIRE_LATEX").is_err(),
+            "PERSIST_REQUIRE_LATEX is set but no xelatex/lualatex was found — \
+             the compilation tests would have skipped silently"
+        );
         eprintln!("SKIPPING LaTeX compilation tests: no xelatex/lualatex found");
         false
     }
@@ -693,5 +842,110 @@ mod compile_tests {
             err.to_string().contains("exceeded") || err.to_string().contains("failed"),
             "unexpected error: {err}"
         );
+    }
+}
+
+#[cfg(test)]
+mod second_template_tests {
+    use super::*;
+
+    /// The registry only earns its keep if a template other than the invoice
+    /// actually renders. This is the second one, and the one the Smart Form
+    /// Compiler's first real form will drive.
+    #[tokio::test]
+    async fn the_examination_reply_compiles() {
+        if !compile_tests::engine_available() {
+            return;
+        }
+
+        let prior_use = format!(
+            "\\persistsection{{Prior use}}\n\\noindent The Applicant has used the mark \
+             continuously in the course of trade since {}.",
+            escape("2019-04-01")
+        );
+
+        let fields: HashMap<String, Field> = [
+            ("FIRM_NAME", Field::text("Persistas & Partners")),
+            ("FIRM_ADDRESS", Field::text("B-12, Greater Kailash-I, New Delhi 110048")),
+            ("FIRM_CONTACT", Field::text("+91 11 4000 1234 — mail@persistas.in")),
+            ("ATTORNEY_NAME", Field::text("Sree Lakshmi Menon")),
+            ("REPLY_DATE", Field::text("2026-08-10")),
+            ("REGISTRY_OFFICE", Field::text("Delhi")),
+            ("TM_NUMBER", Field::text("5544121")),
+            ("TM_MARK", Field::text("PETALVEDA")),
+            ("TM_CLASS", Field::text("3, 5")),
+            ("APPLICANT_NAME", Field::text("Tata & Sons Pvt Ltd")),
+            ("EXAM_REPORT_DATE", Field::text("2026-06-15")),
+            (
+                "SUBMISSIONS",
+                // 100% and the ampersand are the two characters that broke the
+                // invoice; a second template must survive them too.
+                Field::text(
+                    "The objection under s.11(1) is respectfully denied. The cited mark \
+                     covers goods in class 30 and is 100% distinct in trade channels. \
+                     The Applicant's mark is used on ayurvedic preparations & cosmetics.",
+                ),
+            ),
+            ("GROUNDS_TEXT", Field::text("Prior use since 2019; no likelihood of confusion.")),
+            ("PRIOR_USE_BLOCK", Field::raw(prior_use)),
+        ]
+        .into_iter()
+        .map(|(k, v)| (k.to_owned(), v))
+        .collect();
+
+        let pdf = compile_latex("tm-examination-reply", &fields)
+            .await
+            .expect("the examination reply must compile");
+
+        assert!(pdf.starts_with(b"%PDF-"));
+        assert!(pdf.len() > 3_000, "implausibly small: {} bytes", pdf.len());
+    }
+}
+
+#[cfg(test)]
+mod mode_tests {
+    use super::*;
+
+    #[test]
+    fn a_draft_is_one_pass_and_a_final_is_two() {
+        // The distinction is the whole point: a preview may lag on column
+        // widths, a filing may not.
+        assert_eq!(CompileMode::Draft.passes(), 1);
+        assert_eq!(CompileMode::Final.passes(), PASSES);
+        assert!(CompileMode::Final.passes() > CompileMode::Draft.passes());
+    }
+
+    /// The warm-up must not take the app down on a machine with no TeX Live.
+    #[tokio::test]
+    async fn warm_up_never_panics_or_propagates() {
+        warm_up().await;
+    }
+
+    #[tokio::test]
+    async fn a_draft_and_a_final_both_produce_a_pdf() {
+        if !compile_tests::engine_available() {
+            return;
+        }
+
+        let fields: HashMap<String, Field> =
+            [("NAME".to_owned(), Field::text("Tata & Sons"))].into_iter().collect();
+
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("modes.tex"),
+            "\\documentclass{article}\\usepackage{fontspec}\\setmainfont{Noto Serif}\
+             \\begin{document}{{NAME}} ₹100\\end{document}",
+        )
+        .unwrap();
+
+        let source = std::fs::read_to_string(dir.path().join("modes.tex")).unwrap();
+        let rendered = render(&source, &fields).unwrap();
+
+        for mode in [CompileMode::Draft, CompileMode::Final] {
+            let pdf = run_engine_in("modes", &rendered, None, mode.passes())
+                .await
+                .unwrap_or_else(|e| panic!("{mode:?} failed: {e:#}"));
+            assert!(pdf.starts_with(b"%PDF-"), "{mode:?} produced no PDF");
+        }
     }
 }
