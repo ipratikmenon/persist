@@ -54,7 +54,7 @@ client privilege matters, reliability > features, Indian IP law context, two att
 | React frontend | React 19, TypeScript, Vite, Zustand | `src/` (called **Deck**) |
 | Database | SQLite via sqlx | `src-tauri/db/` |
 | Document vault | Local filesystem, AES-256 | `src-tauri/storage/` |
-| LaTeX engine | TeX Live (bundled in installer) | subprocess via `src-tauri/services/latex.rs` |
+| LaTeX engine | XeLaTeX + Noto (TeX Live bundled in installer) | subprocess via `src-tauri/services/latex.rs` |
 | IPC bridge | Tauri `invoke()` | `src/lib/tauri.ts` (typed wrappers) |
 
 ### Persist Web (Client Portal)
@@ -109,6 +109,8 @@ These are internal names for clarity. Not a third-party framework. Do not rename
 
 ### LaTeX
 - LaTeX compilation is LOCAL — TeX Live is bundled in the installer
+- The engine is **XeLaTeX**, never pdfLaTeX — ₹ and Devanagari need a Unicode engine
+- Template values are `latex::Field` (`text` escapes, `raw` does not) — never bare strings
 - NEVER compile LaTeX server-side or via any network call
 - All LaTeX jobs are async — always `tokio::spawn`, never block the main thread
 - LaTeX pipeline: `src-tauri/services/latex.rs` → subprocess → reads output PDF bytes → returns to Deck

@@ -16,8 +16,21 @@
 \usepackage[
   top=20mm, bottom=20mm, left=22mm, right=22mm
 ]{geometry}
-\usepackage{fontenc}
-\usepackage{inputenc}
+% Compiled with XeLaTeX, never pdfLaTeX. An Indian invoice needs ₹ (U+20B9),
+% which pdfLaTeX cannot typeset — it fails outright — and Hindi filings need
+% Devanagari. fontspec with a Unicode font gives both without per-glyph tricks.
+\usepackage{fontspec}
+\setmainfont{Noto Serif}[
+  UprightFont = *,
+  BoldFont    = * Bold,
+  ItalicFont  = * Italic,
+]
+\setsansfont{Noto Sans}
+\setmonofont{Noto Sans Mono}[Scale=MatchLowercase]
+% Declared so a Hindi title or party name renders rather than dropping to
+% tofu. Devanagari needs its own shaper, not just a font that has the glyphs.
+\newfontfamily\devanagarifont{Noto Serif Devanagari}[Script=Devanagari]
+
 \usepackage{microtype}
 \usepackage{booktabs}
 \usepackage{tabularx}

@@ -158,22 +158,54 @@ Never hardcode this path — use `tauri::api::path::app_data_dir()`.
 
 ## LaTeX Compilation
 
+**Engine: XeLaTeX (or LuaLaTeX). Never pdfLaTeX.**
+
+An Indian IP practice needs ₹ (U+20B9) on every invoice and Devanagari on Hindi
+filings. pdfLaTeX fails outright on the rupee sign and cannot set Devanagari
+without contortions. Templates therefore use `fontspec` with a Unicode font
+(Noto Serif), and the installer must ship xelatex plus the Noto families.
+
 ```rust
-// services/latex.rs — async subprocess
+// services/latex.rs
 pub async fn compile_latex(
     template_id: &str,
-    field_values: &HashMap<String, String>
-) -> anyhow::Result<Vec<u8>> {
-    // 1. Load .tex template from storage/templates/
-    // 2. Inject field_values
-    // 3. tokio::task::spawn_blocking: run pdflatex subprocess
-    // 4. Read output PDF bytes
-    // 5. Return bytes (never write to disk in the command layer)
-}
+    fields: &HashMap<String, Field>,   // NOT String — see below
+) -> anyhow::Result<Vec<u8>>
 ```
 
-TeX Live binary path is resolved at runtime from the bundled sidecar.
-Never hardcode paths — use the sidecar resolver in `lib.rs`.
+**Every value is a `Field`, never a bare string.**
+
+```rust
+Field::text("Tata & Sons")   // escaped on the way in
+Field::raw(table_rows)        // LaTeX the caller assembled deliberately
+```
+
+There is no way to pass an unescaped string, and that is the point. The previous
+API took `HashMap<String, String>` and left escaping to the caller, which
+escaped one field out of twenty-one — so the firm's own name, `Persistas &
+Partners`, broke every invoice.
+
+Anything interpolated into a `Field::raw` must go through `latex::escape` first.
+`raw` is deliberately greppable: it is the only place a template injection can
+originate.
+
+**Rules:**
+- Never call `escape` twice on the same value — `Field::text` already escapes.
+- Never map a backslash to `\\`. That is a LaTeX *line break*, and it silently
+  splits text across two lines in a compiled document. Use `\textbackslash{}`.
+- An unfilled `{{PLACEHOLDER}}` is an error, not something to print. `render`
+  refuses rather than shipping `{{CLIENT_ADDRESS}}` to a client.
+- Compilation runs twice (`longtable` and cross-references need a second pass),
+  under a 60-second timeout, with `-no-shell-escape`.
+- Return bytes. Never write to disk in the command layer.
+
+TeX Live is resolved at runtime from the bundled sidecar, then well-known
+install locations, then PATH. `PERSIST_LATEX_ENGINE` overrides for tests.
+Never hardcode paths.
+
+**Templates must be tested by compiling them.** String assertions cannot catch a
+missing glyph or a broken font setup — `services/latex.rs` has compilation tests
+that run the real engine against the real template with hostile values.
 
 ---
 

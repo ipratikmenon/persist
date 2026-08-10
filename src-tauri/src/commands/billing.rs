@@ -632,41 +632,49 @@ pub async fn generate_invoice_pdf(
     let (client_name, client_gstin, client_address) = client_row
         .unwrap_or_else(|| (String::from("—"), None, None));
 
-    // Build template variables
+    // Build template variables.
+    //
+    // Every value is a `Field`: `text` is escaped on the way in, `raw` is LaTeX
+    // this function assembled. There is no third option, which is why the
+    // "escaped one field out of twenty" bug cannot recur here.
+    use latex::Field;
     let mut fields = std::collections::HashMap::new();
-    fields.insert("INVOICE_ID".into(),      inv.id.clone());
-    fields.insert("INVOICE_DATE".into(),    inv.invoice_date.clone());
-    fields.insert("DUE_DATE".into(),        inv.due_date.unwrap_or_default());
-    fields.insert("CLIENT_NAME".into(),     client_name);
-    fields.insert("CLIENT_GSTIN".into(),    client_gstin.unwrap_or_default());
-    fields.insert("CLIENT_ADDRESS".into(),  client_address.unwrap_or_default());
-    fields.insert("FIRM_NAME".into(),       settings.firm_name.clone());
-    fields.insert("FIRM_GSTIN".into(),    settings.firm_gstin.unwrap_or_default());
-    fields.insert("FIRM_ADDRESS".into(),  settings.firm_address.unwrap_or_default());
-    fields.insert("FIRM_PAN".into(),      settings.firm_pan.unwrap_or_default());
-    fields.insert("FIRM_BANK".into(),     format!("{} — A/C: {} IFSC: {}",
+    fields.insert("INVOICE_ID".into(),     Field::text(&inv.id));
+    fields.insert("INVOICE_DATE".into(),   Field::text(&inv.invoice_date));
+    fields.insert("DUE_DATE".into(),       Field::text(inv.due_date.clone().unwrap_or_default()));
+    fields.insert("CLIENT_NAME".into(),    Field::text(&client_name));
+    fields.insert("CLIENT_GSTIN".into(),   Field::text(client_gstin.unwrap_or_default()));
+    fields.insert("CLIENT_ADDRESS".into(), Field::text(client_address.unwrap_or_default()));
+    fields.insert("FIRM_NAME".into(),      Field::text(&settings.firm_name));
+    fields.insert("FIRM_GSTIN".into(),     Field::text(settings.firm_gstin.unwrap_or_default()));
+    fields.insert("FIRM_ADDRESS".into(),   Field::text(settings.firm_address.unwrap_or_default()));
+    fields.insert("FIRM_PAN".into(),       Field::text(settings.firm_pan.unwrap_or_default()));
+    fields.insert("FIRM_BANK".into(),      Field::text(format!("{} — A/C: {} IFSC: {}",
         settings.bank_name.unwrap_or_default(),
         settings.bank_account.unwrap_or_default(),
-        settings.bank_ifsc.unwrap_or_default()));
+        settings.bank_ifsc.unwrap_or_default())));
 
-    // Build LaTeX tabular rows for line items
+    // Line items are the one place this function writes LaTeX itself. The
+    // structural `&` and `\\` are markup; everything interpolated between them
+    // goes through `latex::escape` first.
     let table_rows: String = line_items.iter().map(|li| {
-        let hrs = li.hours.map(|h| format!("{h:.2}")).unwrap_or_default();
-        let code = li.activity_code.as_deref().unwrap_or("");
-        format!("{} & {} & {} & ₹{:.2} & ₹{:.2} \\\\",
-            code, latex_escape(&li.description), hrs, li.rate, li.amount)
+        let hrs  = li.hours.map(|h| format!("{h:.2}")).unwrap_or_default();
+        let code = latex::escape(li.activity_code.as_deref().unwrap_or(""));
+        format!("{} & {} & {} & ₹{} & ₹{} \\\\",
+            code, latex::escape(&li.description), hrs,
+            format_inr(li.rate), format_inr(li.amount))
     }).collect::<Vec<_>>().join("\n");
-    fields.insert("LINE_ITEMS_TABLE".into(), table_rows);
+    fields.insert("LINE_ITEMS_TABLE".into(), Field::raw(table_rows));
 
-    fields.insert("SUBTOTAL".into(),     format!("{:.2}", inv.subtotal));
-    fields.insert("CGST_AMOUNT".into(),  format!("{:.2}", inv.cgst_amount));
-    fields.insert("SGST_AMOUNT".into(),  format!("{:.2}", inv.sgst_amount));
-    fields.insert("IGST_AMOUNT".into(),  format!("{:.2}", inv.igst_amount));
-    fields.insert("TOTAL".into(),        format!("{:.2}", inv.total_with_tax));
-    fields.insert("AMOUNT_IN_WORDS".into(), amount_in_words(inv.total_with_tax));
-    fields.insert("NOTES".into(),        inv.notes.unwrap_or_default());
-    fields.insert("SAC_CODE".into(),     "998212".into());
-    fields.insert("GST_TYPE".into(),     inv.gst_type.clone());
+    fields.insert("SUBTOTAL".into(),        Field::text(format_inr(inv.subtotal)));
+    fields.insert("CGST_AMOUNT".into(),     Field::text(format_inr(inv.cgst_amount)));
+    fields.insert("SGST_AMOUNT".into(),     Field::text(format_inr(inv.sgst_amount)));
+    fields.insert("IGST_AMOUNT".into(),     Field::text(format_inr(inv.igst_amount)));
+    fields.insert("TOTAL".into(),           Field::text(format_inr(inv.total_with_tax)));
+    fields.insert("AMOUNT_IN_WORDS".into(), Field::text(amount_in_words(inv.total_with_tax)));
+    fields.insert("NOTES".into(),           Field::text(inv.notes.clone().unwrap_or_default()));
+    fields.insert("SAC_CODE".into(),        Field::text("998212"));
+    fields.insert("GST_TYPE".into(),        Field::text(&inv.gst_type));
 
     // Run LaTeX
     let pdf_bytes = latex::compile_latex("invoice", &fields).await
@@ -675,6 +683,23 @@ pub async fn generate_invoice_pdf(
     // Store in vault
     let pool = state.db.lock().await;
     let doc_id = Uuid::new_v4().to_string();
+
+    // `documents.matter_id` is NOT NULL REFERENCES matters(id). This previously
+    // bound the client id — which the foreign key rejects, so the PDF was
+    // encrypted into the vault and then the row failed, leaving an orphan.
+    //
+    // An invoice may cover several matters. It is filed against the first, which
+    // is a real matter belonging to this client; an invoice covering none has
+    // nowhere to be filed and says so rather than writing a broken row.
+    let filing_matter_id = serde_json::from_str::<Vec<String>>(&inv.matter_ids)
+        .unwrap_or_default()
+        .into_iter()
+        .next()
+        .ok_or_else(|| format!(
+            "Invoice {} is not linked to any matter, so its PDF has nowhere to be filed. \
+             Add a matter to the invoice and try again.",
+            inv.id
+        ))?;
 
     let vault_path = {
         let vault_dir = &state.vault_dir;
@@ -696,7 +721,7 @@ pub async fn generate_invoice_pdf(
          VALUES (?, ?, ?, 'Invoice', 'application/pdf', ?, ?, ?)"
     )
     .bind(&doc_id)
-    .bind(&inv.client_id)          // Use client_id as matter_id placeholder until linked
+    .bind(&filing_matter_id)
     .bind(&filename)
     .bind(file_size)
     .bind(&vault_path)
@@ -713,18 +738,32 @@ pub async fn generate_invoice_pdf(
 // Helpers for generate_invoice_pdf
 // ---------------------------------------------------------------------------
 
-/// Escape special LaTeX characters in user-supplied text.
-fn latex_escape(s: &str) -> String {
-    s.replace('\\', r"\\")
-     .replace('{', r"\{")
-     .replace('}', r"\}")
-     .replace('&', r"\&")
-     .replace('%', r"\%")
-     .replace('$', r"\$")
-     .replace('#', r"\#")
-     .replace('_', r"\_")
-     .replace('^', r"\textasciicircum{}")
-     .replace('~', r"\textasciitilde{}")
+/// Format an amount with Indian digit grouping: 600000.0 → "6,00,000.00".
+///
+/// Three digits, then twos — the lakh/crore convention, not the Western
+/// thousands one. `amount_in_words` already speaks in lakhs, so a figure
+/// grouped as "600,000.00" beside the words "Six Lakh" reads as a mistake on a
+/// GST invoice.
+fn format_inr(amount: f64) -> String {
+    let negative = amount < 0.0;
+    let text = format!("{:.2}", amount.abs());
+    let (whole, fraction) = text.split_once('.').unwrap_or((text.as_str(), "00"));
+
+    let grouped = if whole.len() <= 3 {
+        whole.to_owned()
+    } else {
+        let (lead, last_three) = whole.split_at(whole.len() - 3);
+        // The leading part is grouped in twos, read from the right.
+        let mut pairs: Vec<String> = lead
+            .as_bytes()
+            .rchunks(2)
+            .map(|c| String::from_utf8_lossy(c).into_owned())
+            .collect();
+        pairs.reverse();
+        format!("{},{last_three}", pairs.join(","))
+    };
+
+    format!("{}{grouped}.{fraction}", if negative { "-" } else { "" })
 }
 
 /// Convert a monetary amount to Indian-style words (INR).
@@ -777,4 +816,56 @@ fn num_in_words(n: u64) -> String {
         }
     }
     parts.join(" ")
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Indian grouping is three digits then twos, not Western thousands.
+    /// The invoice prints these next to `amount_in_words`, which already says
+    /// "Lakh" — grouped the Western way the two read as contradicting each other.
+    #[test]
+    fn amounts_use_indian_digit_grouping() {
+        assert_eq!(format_inr(0.0),         "0.00");
+        assert_eq!(format_inr(999.5),       "999.50");
+        assert_eq!(format_inr(1_000.0),     "1,000.00");
+        assert_eq!(format_inr(23_600.0),    "23,600.00");
+        assert_eq!(format_inr(100_000.0),   "1,00,000.00");
+        assert_eq!(format_inr(600_000.0),   "6,00,000.00");
+        assert_eq!(format_inr(1_234_567.0), "12,34,567.00");
+        // One crore.
+        assert_eq!(format_inr(10_000_000.0), "1,00,00,000.00");
+    }
+
+    #[test]
+    fn a_credit_keeps_its_sign() {
+        assert_eq!(format_inr(-5_00_000.0), "-5,00,000.00");
+    }
+
+    #[test]
+    fn paise_are_always_shown() {
+        // A GST invoice states paise even when they are zero.
+        assert_eq!(format_inr(8_000.0),  "8,000.00");
+        assert_eq!(format_inr(8_000.05), "8,000.05");
+        assert_eq!(format_inr(8_000.5),  "8,000.50");
+    }
+
+    /// Grouping is presentation only. It must never disagree with the figure
+    /// the invoice was calculated from.
+    #[test]
+    fn grouping_does_not_change_the_value() {
+        for amount in [0.0_f64, 1.0, 999.99, 1_00_000.0, 82_600.01, 1_23_45_678.9] {
+            let stripped: String = format_inr(amount).chars().filter(|c| *c != ',').collect();
+            assert_eq!(
+                stripped,
+                format!("{amount:.2}"),
+                "grouping altered the amount {amount}"
+            );
+        }
+    }
 }
