@@ -11,16 +11,39 @@
 % colour tokens, the L/C/R column types, and \firmfooter. They add only their
 % own content.
 
-\usepackage[top=20mm, bottom=20mm, left=22mm, right=22mm]{geometry}
+% ── Layout ───────────────────────────────────────────────────────────────────
+% Paper, typeface, size, spacing, page numbering and which pages carry the
+% letterhead are per-document choices, not template content. The drafting
+% command compiles them to persist-layout.tex and stages it beside the template;
+% everything below reads it. A compile that does not supply one — a test, an
+% invoice generated straight from billing — gets these defaults and looks
+% exactly as it did before any of this existed.
+\InputIfFileExists{persist-layout.tex}{}{}
+
+\providecommand{\persistpaperwidth}{210mm}
+\providecommand{\persistpaperheight}{297mm}
+\providecommand{\persistmainfont}{Noto Serif}
+\providecommand{\persistfontsize}{12.0pt}
+\providecommand{\persistleading}{14.4pt}
+\providecommand{\persiststretch}{1.00}
+\providecommand{\persistbodystyle}{}
+\providecommand{\persistpagenumbers}{pageoftotal}
+\providecommand{\persistpageoffset}{0}
+\providecommand{\persistletterheadmode}{all}
+\newif\ifpersistshowhead
+\providecommand{\persistheadtest}{\persistshowheadtrue}
+
+% papersize={w,h} rather than the named a4paper/legalpaper options: those are
+% keyval *keys*, and keyval does not expand a macro in key position — so
+% \geometry{\persistpaperwidth} would match nothing and silently leave the paper
+% whatever the \documentclass said. Values are expanded; keys are not.
+\usepackage{geometry}
+\geometry{papersize={\persistpaperwidth,\persistpaperheight},
+          top=20mm, bottom=20mm, left=22mm, right=22mm}
 
 % ── Fonts ────────────────────────────────────────────────────────────────────
-% Noto covers ₹ (U+20B9) and Devanagari. pdfLaTeX fails outright on the former.
 \usepackage{fontspec}
-\setmainfont{Noto Serif}[
-  UprightFont = *,
-  BoldFont    = * Bold,
-  ItalicFont  = * Italic,
-]
+\setmainfont{\persistmainfont}
 \setsansfont{Noto Sans}
 \setmonofont{Noto Sans Mono}[Scale=MatchLowercase]
 % Declared so a Hindi party name or title renders rather than dropping to tofu.
@@ -28,6 +51,33 @@
 \newfontfamily\devanagarifont{Noto Serif Devanagari}[Script=Devanagari]
 % Wrap Devanagari runs: {\hindi ...}
 \newcommand{\hindi}[1]{{\devanagarifont #1}}
+
+% ── The rupee ────────────────────────────────────────────────────────────────
+% Only the Noto faces carry ₹ (U+20B9). Every Times, Palatino and Century
+% Schoolbook clone in TeX Live drops it silently: no error, a clean compile, and
+% an invoice for "1,55,760.00" with no currency sign. Measured, not assumed.
+%
+% So ₹ is bound to a Noto fallback for every face, which catches it in template
+% source and in attorney-typed text alike without either having to know. When
+% the body face is already Noto this changes nothing.
+\newfontfamily\persistrupeefont{Noto Serif}[Scale=MatchLowercase]
+\usepackage{newunicodechar}
+\newunicodechar{₹}{{\persistrupeefont\symbol{"20B9}}}
+
+% ── Size and spacing ─────────────────────────────────────────────────────────
+% scrextend rather than a \documentclass option: the size is chosen per
+% document, and \changefontsizes rebuilds \small, \large and the rest around
+% the new base instead of leaving them at the class's twelve point.
+\usepackage{scrextend}
+\changefontsizes[\persistleading]{\persistfontsize}
+\usepackage{setspace}
+\setstretch{\persiststretch}
+
+% "Page 3 of 19" — the count, not just the number. Loaded here rather than in
+% the letterhead, because a template can ask for a total without wanting the
+% firm's mark on every page.
+\usepackage{lastpage}
+\usepackage{refcount}
 
 % ── Packages ─────────────────────────────────────────────────────────────────
 \usepackage{microtype}
@@ -63,6 +113,32 @@
 \renewcommand{\familydefault}{\rmdefault}
 \setlength{\parindent}{0pt}
 
+% A document-wide bold or italic, when one is asked for. \AtBeginDocument so it
+% applies to the body and not to anything the preamble measures.
+\AtBeginDocument{\persistbodystyle}
+
+% ── Page numbering ───────────────────────────────────────────────────────────
+% One definition, used by every footer. \persistpageoffset lets a document that
+% is part of a larger paper-book start at the page it starts at, while
+% \value{page} keeps meaning "sheet number" — which is what the letterhead
+% page test compares against.
+\newcommand{\persistpageno}{\number\numexpr\value{page}+\persistpageoffset\relax}
+% \getpagerefnumber, not \pageref: the latter is not expandable inside
+% \numexpr and produces "Missing number" rather than a page count.
+\newcommand{\persistlastpageno}{%
+  \number\numexpr\getpagerefnumber{LastPage}+\persistpageoffset\relax}
+\newcommand{\persistpagelabel}{%
+  \ifx\persistpagenumbers\persistpnnone\else
+    \ifx\persistpagenumbers\persistpnplain \persistpageno\fi
+    \ifx\persistpagenumbers\persistpnpage Page \persistpageno\fi
+    \ifx\persistpagenumbers\persistpnpageoftotal Page \persistpageno\ of \persistlastpageno\fi
+  \fi
+}
+\def\persistpnnone{none}
+\def\persistpnplain{plain}
+\def\persistpnpage{page}
+\def\persistpnpageoftotal{pageoftotal}
+
 % ── Fixed-width column types ─────────────────────────────────────────────────
 \newcolumntype{R}[1]{>{\raggedleft\arraybackslash}p{#1}}
 \newcolumntype{L}[1]{>{\raggedright\arraybackslash}p{#1}}
@@ -78,7 +154,7 @@
   \fancyhf{}%
   \renewcommand{\headrulewidth}{0pt}%
   \fancyfoot[C]{\footnotesize\color{textSecondary}
-    Page \thepage\ — #1 — GSTIN: #2 — PAN: #3}%
+    \persistpagelabel\ — #1 — GSTIN: #2 — PAN: #3}%
 }
 
 % A footer for documents that are not invoices: no tax identifiers, just the
@@ -88,7 +164,7 @@
   \pagestyle{fancy}%
   \fancyhf{}%
   \renewcommand{\headrulewidth}{0pt}%
-  \fancyfoot[C]{\footnotesize\color{textSecondary} Page \thepage\ — #1}%
+  \fancyfoot[C]{\footnotesize\color{textSecondary} \persistpagelabel\ — #1}%
 }
 
 % ── Letterhead ───────────────────────────────────────────────────────────────

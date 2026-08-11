@@ -22,41 +22,74 @@
 
 > Fill this section at the start of a session. Clear it when done.
 
-**Nothing in progress.** S24 fixed the letterhead alignment and built annexures.
+**Nothing in progress.** S24 fixed the letterhead alignment, built annexures,
+and made page formatting a setting rather than something a drafter does by hand.
 On `claude/new-session-dbqe5o`.
 
-**Letterhead alignment (your first note).** The partner names and addresses did
-not line up with the mark. Cropped both headers at 150 dpi and found three
-things, all fixed: the block set its own leading with `\\[1pt]` between lines
-on top of the font's, making it half again as tall as the firm's; the mark was
-top-aligned against a block it should have been centred against; and the rule
-between the partners ran the full width. `newgeometry` now uses
-`includehead`/`includefoot`, so the bands sit where they do on the firm's own
-notices rather than against the paper edge.
+**Letterhead alignment.** The partner names and addresses did not line up with
+the mark. Cropped both headers at 150 dpi and found three things, all fixed: the
+block set its own leading with `\\[1pt]` between lines on top of the font's,
+making it half again as tall; the mark was top-aligned against a block it should
+have been centred against; and the rule between the partners ran the full width.
+`geometry` now uses `includehead`/`includefoot`, so the bands sit where they do
+on the firm's own notices rather than against the paper edge.
 
-**Annexures (your second note).**
+**Annexures.**
 
   ✅ `_shared/persist-annexures.tex` — `\annexurepdf`, `\annexureimage`,
      `\annexurestamp`, and the list macros.
   ✅ `services/annexures.rs` — marks allocated A, B, C from the attorney's
      order; the printed list and the appended pages built from one `Vec` so
-     they cannot disagree; file type sniffed from the bytes, never from the
-     recorded mime type.
+     they cannot disagree; file type sniffed from the bytes.
   ✅ `latex::Attachment` + `compile_with` — files staged into the compile
-     directory, names refused unless `[a-z0-9._-]`. The compile directory is on
-     TEXINPUTS because the engine's working directory is the app's.
+     directory, names refused unless `[a-z0-9._-]`, compile directory on
+     TEXINPUTS.
   ✅ `stage_annexure` / `discard_annexure` — the attorney picks a file through
      the OS dialog, Keel reads it, checks the type, strips its metadata and
-     holds it in memory for the session. Deck never handles the bytes and the
-     preview does not resend them on every keystroke.
-  ✅ Deck: a checkbox, "+ Add annexure", a name, and "Choose file". Marks shown
-     against each row come back from Keel after a render — not recomputed in
-     TypeScript, which would be a second implementation of the same rule.
+     holds it for the session. Deck never handles the bytes.
+  ✅ Deck: a checkbox, "+ Add annexure", a name, "Choose file". Marks shown
+     against each row come back from Keel after a render.
 
-**An annexure page carries the document and its mark, and nothing else.** No
-cover sheet, no caption, no letterhead over a third party's receipt.
+An annexure page carries the document and its mark and nothing else. No cover
+sheet, no caption, no letterhead over a third party's receipt.
 
-**Two negative controls run before trusting the tests:**
+**Page setup — `services/layout.rs`.** Paper (A4/Legal), typeface, size, line
+spacing, document-wide bold/italic, page numbering (four forms, plus a starting
+number for a document bound into a larger paper-book), and which pages carry the
+letterhead (every page / first only / named pages / none).
+
+None of it is a template field. It compiles to a `persist-layout.tex` staged
+beside the template, which `_shared/persist-base.tex` reads; a compile that
+supplies no layout gets the defaults and looks exactly as it did.
+
+`first page only` does **not** use a running head. `\headheight` is one value
+for the whole document, so running the letterhead as a head would give every
+continuation sheet a four-centimetre blank band. In that mode the letterhead is
+set as body content at the start of page one and the band shrinks to what the
+page number needs.
+
+⚠️ **Your own notice is A4** — measured, all nineteen pages. Legal is now a
+switch, defaulting to A4 to match what the firm actually sends. Tell me if
+filings should default the other way and it is a one-line change.
+
+**Three faults found by compiling and measuring rather than by reading:**
+
+  1. **Only the Noto faces carry ₹.** Every Times, Palatino and Century
+     Schoolbook clone in TeX Live drops U+20B9 silently — clean compile, no
+     warning, a notice demanding "1,04,000" with no currency sign. The preamble
+     now routes ₹ through a Noto fallback via `newunicodechar`, which catches it
+     in template source and attorney-typed text alike.
+     `every_offered_font_can_set_the_rupee` compiles the real subject line in
+     each offered face.
+  2. **Legal paper produced A4.** `keyval` does not expand a macro in key
+     position, so `\geometry{\persistpaper}` matched nothing and said nothing.
+     Now `papersize={w,h}`, which takes values.
+  3. **`\newgeometry` re-derives the paper from the class options**, discarding
+     the papersize set earlier — so even after (2) a Legal notice came out A4.
+     `\applyletterhead` runs in the preamble, where plain `\geometry` is allowed
+     and accumulates.
+
+**Two negative controls run before trusting the annexure guards:**
 
   1. The obvious implementation of the mark — a fancyhdr page style — was
      compiled and measured: it inherits `\applyletterhead`'s 108pt head band and
@@ -64,17 +97,16 @@ cover sheet, no caption, no letterhead over a third party's receipt.
      top of the evidence. `the_mark_sits_at_the_top_of_the_page_clear_of_the_content`
      fails on it and passes on the shipped one.
   2. Removing the compile directory from TEXINPUTS breaks
-     `a_staged_file_is_reachable_by_name_from_the_template`, which is the only
-     reason a staged annexure can be found at all.
+     `a_staged_file_is_reachable_by_name_from_the_template`.
 
   Worth recording: I first wrote in the template that the fancyhdr version puts
   the *following* annexure's letter on the last page of the one before it. The
   negative control disproved that — the marks come out right either way. The
   comment now states the reason that is actually true.
 
-⚠️ Open on annexures: staged files are held in memory and are not separately
-vaulted. What is retained is the generated document, which contains them; a
-restart loses an unfinished draft's attachments.
+⚠️ Open: staged annexures are held in memory and are not separately vaulted.
+What is retained is the generated document, which contains them; a restart loses
+an unfinished draft's attachments.
 
 **THE STRUCTURAL GAP THIS EXPOSED — repeating groups.**
 
@@ -543,7 +575,7 @@ HETZNER_SYNC_URL=       # Sync server URL (Phase 2 M5)
 | Apr 17 2026 | S07: Phase 2 M4 Billing — spec written, migration 0006_billing.sql (5 tables), queries/billing.rs (5 tests), commands/billing.rs (13 cmds), lib.rs billing commands registered, tauri.ts billing wrappers, BillingHome/TimeTracker/InvoiceList/FirmSettingsPanel. Also: new spec files placed in specs/ (module-02-docketing, auth-rbac, hpas-integration, module-03-documents updated), PROGRESS.md reconciled | specs/*.md, 0006_billing.sql, queries/billing.rs, commands/billing.rs, pages/Billing/*.tsx | cargo test: 30/30, pnpm build: PASS (467 modules, 457kb) |
 | Apr 19 2026 | S08: Phase 2 M4 Billing UI complete — InvoiceDetail.tsx (back/actions/line items/GST panel/payment modal), InvoiceComposer.tsx (client→matter→entries→fixed-fee→GST type→live totals→create), InvoiceList wired (row click→detail, New Invoice→composer), latex.rs real impl (finds pdflatex, tempdir compile, 3 tests), invoice.tex GST-compliant template, client lookup added to generate_invoice_pdf, tempfile moved to [dependencies] | pages/Billing/InvoiceDetail.tsx, InvoiceComposer.tsx, InvoiceList.tsx, services/latex.rs, storage/templates/invoice.tex, commands/billing.rs, Cargo.toml | cargo test: 33/33, pnpm build: PASS (469 modules, 482kb) |
 | Jul 19 2026 | S09: Expansion roadmap (planning only, no code) — researched adalat.ai + visiocyber.ai; wrote specs/expansion-roadmap.md defining Track A Courtroom Intelligence (M25 transcription, M26 hearings/cause lists, M27 doc digitization, M28 research/summarization, M29 WhatsApp chatbot) and Track B Startup Legal SaaS (M30 Startup Legal OS, M31 DP Audit Engine → Phase 2.5, M32 Compliance & AI Governance, M33 Assessments); added Phases 2.5/8/9 to TASKS.md; 4 architecture decisions logged | specs/expansion-roadmap.md (new), TASKS.md, PROGRESS.md, SESSION-LOG/2026-07-19-S09-expansion-roadmap.md | No code changed — tests unaffected (33/33 as of S08) |
-| Aug 11 2026 | S24: Letterhead alignment + annexures. **Alignment:** the partner blocks set their own leading on top of the font's, the mark was top-aligned against a block it should have been centred against, and the rule ran full width; `newgeometry` now uses `includehead`/`includefoot` so the bands are not pinned to the paper edge. Measured off 150dpi crops of both headers, not guessed. **Annexures:** `_shared/persist-annexures.tex` (`\annexurepdf`, `\annexureimage`, `\annexurestamp`), `services/annexures.rs` (marks A/B/C from the attorney's order; the printed list and the appended pages built from one `Vec`; type sniffed from bytes, not from the mime column), `latex::Attachment` + `compile_with` (staged into the compile directory, names refused unless `[a-z0-9._-]`, compile directory added to TEXINPUTS), `stage_annexure`/`discard_annexure` (OS dialog → Keel reads, checks, strips metadata, holds for the session, so Deck never handles bytes and the preview does not resend them), and a Deck picker whose marks come back from Keel rather than being recomputed. An annexure page carries the document and its mark and nothing else. **Two negative controls:** the fancyhdr implementation of the mark was compiled and measured landing at y=137pt on top of the receipt's own text at y=144pt, and dropping the compile directory from TEXINPUTS breaks staging — both guards fail on the broken version and pass on the shipped one. One claim I had written into the template was disproved by its own control and corrected | src-tauri/storage/templates/_shared/{persist-annexures.tex (new),persist-letterhead.tex}, storage/templates/legal-notice.{tex,json}, src-tauri/src/services/{annexures.rs (new),latex.rs}, src-tauri/src/commands/drafting.rs, src-tauri/src/lib.rs, src/components/drafting/AnnexureList.tsx (new), src/pages/Drafting/SmartForm.tsx, src/lib/{ipc-types,tauri}.ts | cargo test: 219/219 (was 204), Deck build PASS |
+| Aug 11 2026 | S24: Letterhead alignment, annexures, and page setup. **Alignment:** partner blocks set their own leading on top of the font's, the mark was top-aligned against a block it should have been centred against, the rule ran full width; `includehead`/`includefoot` so the bands are not pinned to the paper edge. Measured off 150dpi crops, not guessed. **Annexures:** `_shared/persist-annexures.tex`, `services/annexures.rs` (marks A/B/C from the attorney's order; printed list and appended pages from one `Vec`; type sniffed from bytes), `latex::Attachment` + `compile_with` (staged into the compile directory, names refused unless `[a-z0-9._-]`, compile dir on TEXINPUTS), `stage_annexure`/`discard_annexure` (OS dialog → Keel reads, checks, strips metadata, holds for the session), Deck picker whose marks come back from Keel. An annexure page carries the document and its mark and nothing else. **Page setup — `services/layout.rs`:** paper (A4/Legal), typeface, size, line spacing, bold/italic, four page-number forms plus a starting number, and letterhead on every page / first only / named pages / none. Not template fields — compiled to a `persist-layout.tex` staged beside the template. `first page only` sets the letterhead as body content rather than a running head, because `\headheight` is one value for the document and a running head would leave every continuation sheet a 4cm blank band. **Three faults found by measuring, not reading:** only the Noto faces carry ₹, so every Times/Palatino/Schoolbook option dropped it silently (now routed through a Noto fallback via `newunicodechar`); `keyval` does not expand a macro in key position, so `\geometry{\persistpaper}` silently matched nothing and Legal came out A4; and `\newgeometry` re-derives paper from the class options, so it came out A4 again even after that was fixed. **Two negative controls** on the annexure mark and on TEXINPUTS staging, both verified to fail on the broken version. One claim I had written into a template was disproved by its own control and corrected | src-tauri/storage/templates/_shared/{persist-annexures.tex (new),persist-base.tex,persist-letterhead.tex}, storage/templates/legal-notice.{tex,json}, src-tauri/src/services/{annexures.rs (new),layout.rs (new),latex.rs,mod.rs}, src-tauri/src/commands/drafting.rs, src-tauri/src/lib.rs, src/components/drafting/{AnnexureList,PageSetup}.tsx (new), src/pages/Drafting/SmartForm.tsx, src/lib/{ipc-types,tauri}.ts | cargo test: 238/238 (was 204), Deck build PASS |
 | Aug 11 2026 | S23: Firm letterhead + Legal Notice. `_shared/persist-letterhead.tex` — the firm's mark (logo extracted from a real notice), both partners with designation, phone and email, the registered-office footer and `Page N of M` via `lastpage`, applied to every page because a notice is served page by page. Correspondence macros: `\noticebanner`, `\noticedate`, `\noticesubject`, `\noticesection`, `noticebody`. `legal-notice.{tex,json}` follows the firm's house format — addressee block, mode of service, without-prejudice marker, subject, instruction paragraph, numbered sections, closing, signature block with enrolment numbers, annexures. Compiles clean against the letterhead; header band measured rather than guessed after the partner block printed over the body twice | src-tauri/storage/templates/{_shared/persist-letterhead.tex,_shared/assets/persistas-logo.png,legal-notice.tex,legal-notice.json}, src-tauri/src/services/latex.rs | cargo test: 204/204 (was 203) |
 | Aug 11 2026 | S22: Ownership + M9.8. **Ownership:** `COPYRIGHT.md` records Persist as proprietary software and the exclusive property of Persistas & Partners, with the templates called out as professional work product; carried into the Tauri bundle metadata, both Cargo manifests, both package.json files and CLAUDE.md. **M9.8 Smart Form Compiler:** `pages/Drafting/{DraftingHome,SmartForm}.tsx` and `components/drafting/FormField.tsx` — split-screen guided form and live PDF preview, generated entirely from the template manifests so nothing in Deck knows what a trade mark is. Preview debounced at 600ms against a ~1.4s compile, stale renders discarded by sequence, blob URLs revoked rather than leaked per keystroke. Generate files the PDF into the vault against the matter with the template version in the filename. `render_document` switched to base64 — a byte vector crosses Tauri as a JSON number array, ~4x | src/pages/Drafting/** (new), src/components/drafting/FormField.tsx (new), src/lib/{ipc-types,tauri}.ts, src/App.tsx, src/components/shell/AppShell.tsx, src-tauri/src/commands/drafting.rs, COPYRIGHT.md (new), tauri.conf.json, Cargo.toml x2, package.json x2, CLAUDE.md, screenshots/* | cargo test: 203/203, Deck build PASS, 16 screenshots |
 | Aug 11 2026 | S21: M5 Step 4 — the portal frontend. `portal/frontend/`: React + Vite, four tabs (Matters, Documents, Invoices, Account), two-step OTP login, `lib/api.ts` as the single place the portal talks to the backend. Access token in memory only — never localStorage — with the refresh token an httpOnly cookie, so a reload restores the session. Design tokens aliased to Deck's file rather than copied, so the two cannot drift. Money kept as a string end to end and grouped Indian-style. Backend switched to camelCase on the wire to match every other surface. Driven end to end with Playwright against the live API and a real PostgreSQL mirror. **Two bugs found only by running it:** `/matters` was both a React route and an API endpoint, so a same-origin deployment served raw JSON to a browser navigation (API now namespaced under `/api`); and the refresh cookie was scoped `path=/auth`, so after that change every reload logged the client out | portal/frontend/** (new), portal/backend/app/{models.py,api/auth.py}, portal/backend/tests/*, portal/PORTAL-RULES.md, .github/workflows/ci.yml | portal: 48/48, Deck build PASS, portal build PASS |

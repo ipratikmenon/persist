@@ -14,12 +14,15 @@ import { motion, useReducedMotion } from 'motion/react';
 import { keel } from '@/lib/tauri';
 import type {
   AnnexureMark,
+  DocumentLayout,
   DraftAnnexure,
   FieldError,
   TemplateManifest,
 } from '@/lib/ipc-types';
+import { DEFAULT_LAYOUT } from '@/lib/ipc-types';
 import { FormField, isVisible } from '@/components/drafting/FormField';
 import { AnnexureList } from '@/components/drafting/AnnexureList';
+import { PageSetup } from '@/components/drafting/PageSetup';
 import { colors, fonts, fontSizes, radius, shadows, spacing } from '@/design-system/tokens';
 
 /** How long to wait after a keystroke before re-rendering the preview.
@@ -53,6 +56,7 @@ export function SmartForm() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [annexures, setAnnexures] = useState<DraftAnnexure[]>([]);
   const [annexureMarks, setAnnexureMarks] = useState<AnnexureMark[]>([]);
+  const [layout, setLayout] = useState<DocumentLayout>(DEFAULT_LAYOUT);
 
   // Guards against an older, slower render overwriting a newer one.
   const renderSeq = useRef(0);
@@ -115,6 +119,7 @@ export function SmartForm() {
           // A row with no file yet is a name the attorney is still typing, not
           // an annexure. Sending it would mark a gap in the bundle.
           annexures: attachable,
+          layout,
         });
 
         // A render that finished after a newer one started is stale.
@@ -147,7 +152,7 @@ export function SmartForm() {
         }
       }
     },
-    [manifest, values, matterId, attachable],
+    [manifest, values, matterId, attachable, layout],
   );
 
   // Live preview. Only once every visible required field has something in it —
@@ -159,7 +164,7 @@ export function SmartForm() {
     const timer = setTimeout(() => render('draft'), PREVIEW_DEBOUNCE_MS);
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [values, attachable, manifest, missingRequired.length]);
+  }, [values, attachable, layout, manifest, missingRequired.length]);
 
   if (loadError) {
     return <Banner tone="error" message={loadError} />;
@@ -245,6 +250,8 @@ export function SmartForm() {
               onChange={(v) => setValues((prev) => ({ ...prev, [spec.key]: v }))}
             />
           ))}
+
+          <PageSetup layout={layout} onChange={setLayout} />
 
           {takesAnnexures && (
             <AnnexureList

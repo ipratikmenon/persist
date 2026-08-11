@@ -1,22 +1,29 @@
 # Session S24 — 2026-08-11
-## Letterhead alignment, and annexures
+## Letterhead alignment, annexures, and page setup
 
 ---
 
 ## Summary
 
-Two notes from you on the notice template:
+Three notes from you on the notice template:
 
 1. The partner names and addresses did not line up with the mark.
 2. There should be a way to attach proof — receipts, PDFs, images — with the
    annexure marking handled automatically.
+3. Paper size, font, size, bold/italic, page numbers and where the letterhead
+   goes should be settings, so the drafter never formats a document by hand.
 
-Both done. The second was built once the long way and then cut down when you
-said what you actually wanted: a checkbox, add, name it, choose a file, and
+All three done. The second was built once the long way and then cut down when
+you said what you actually wanted: a checkbox, add, name it, choose a file, and
 nothing on the annexure page except the mark.
 
-**Result:** cargo test **219/219** (was 204), Deck build PASS. Nothing pushed to
-`main` — all of it is on `claude/new-session-dbqe5o`, as you asked.
+**Result:** cargo test **238/238** (was 204), Deck build PASS. On
+`claude/new-session-dbqe5o`.
+
+**On paper size.** You thought the notice was Legal. I measured the one you
+sent: it is A4, all nineteen pages. So Legal is a switch and A4 is the default,
+matching what the firm actually sends. Say the word if filings should default
+the other way — it is one line.
 
 ---
 
@@ -91,7 +98,72 @@ means an unusable file is a sentence in front of the attorney straight away.
 
 ---
 
-## 3. Negative controls
+## 3. Page setup
+
+Everything here is a setting, not a template field. A template says what a legal
+notice says; what size the paper is has nothing to do with that, and putting
+paper size into nineteen manifests would mean nineteen places to change it.
+
+| Setting | Options |
+|---|---|
+| Paper | A4 (210 × 297 mm), Legal (8.5 × 14 in) |
+| Typeface | Noto Serif, Times New Roman, Palatino, Century Schoolbook, Noto Sans, Helvetica |
+| Size | 10–16 pt (6–32 accepted) |
+| Line spacing | Single, 1.5, Double |
+| Emphasis | Bold throughout, Italic throughout |
+| Page numbers | `Page 3 of 19`, `Page 3`, `3`, none — plus which number page one is |
+| Letterhead | Every page, First page only, Named pages, None |
+
+`services/layout.rs` compiles the choices to a `persist-layout.tex` staged
+beside the template. `_shared/persist-base.tex` reads it and falls back to the
+house format for anything unset, so a compile that supplies no layout — a test,
+an invoice generated straight from billing — looks exactly as it did.
+
+Nothing in a layout is free text. Every field is an enum or a number, so there
+is no string from Deck that reaches the engine as markup.
+`nothing_in_a_layout_is_free_text` asserts a font name Deck invented is refused
+at deserialisation.
+
+### First page only is not a running head
+
+`\headheight` is one value for the whole document. It cannot be 108pt on page
+one and 14pt after. Running the letterhead as a head in first-page-only mode
+would give every continuation sheet a four-centimetre blank band where the
+firm's mark used to be.
+
+So that mode does not use a running head at all: the letterhead is set as body
+content at the start of page one, and the band shrinks to what the page number
+needs. Page two gets an ordinary top margin. Named pages and every-page keep the
+running head, because there the mark genuinely has to repeat.
+
+---
+
+## 4. Three faults the compile tests found
+
+None of these would have shown up in a string comparison, and two of them
+produce a clean compile and a wrong document.
+
+**Only the Noto faces carry ₹.** Every Times, Palatino and Century Schoolbook
+clone in TeX Live drops U+20B9 without a word — no error, no warning, and a
+served notice demanding "1,04,000" with no currency sign. Measured across all
+six offered faces. The preamble now binds ₹ to a Noto fallback with
+`newunicodechar`, which catches it in template source and in attorney-typed text
+alike, without either having to know.
+
+**Legal paper produced A4.** `keyval` does not expand a macro in key position,
+so `\geometry{\persistpaper}` matched no key, said nothing, and left the
+document whatever size the class made it. Now `papersize={w,h}` — values are
+expanded, keys are not.
+
+**`\newgeometry` re-derives the paper from the class options.** Even after the
+above, a Legal notice still came out A4, because `\applyletterhead` re-ran
+geometry and `\newgeometry` discards the papersize set earlier in favour of the
+`\documentclass` option. It runs in the preamble, where plain `\geometry` is
+allowed and accumulates onto what is already set.
+
+---
+
+## 5. Negative controls
 
 Two guards, each run against a deliberately broken version first.
 
@@ -132,20 +204,23 @@ actually true — the position — and points at the test that enforces it.
 
 ---
 
-## 4. Files
+## 6. Files
 
 **New**
 
 ```
 src-tauri/storage/templates/_shared/persist-annexures.tex
 src-tauri/src/services/annexures.rs
+src-tauri/src/services/layout.rs
 src/components/drafting/AnnexureList.tsx
+src/components/drafting/PageSetup.tsx
 ```
 
 **Changed**
 
 ```
-src-tauri/storage/templates/_shared/persist-letterhead.tex   alignment + \annexure* list macros
+src-tauri/storage/templates/_shared/persist-base.tex         reads the layout; rupee fallback; page-number label
+src-tauri/storage/templates/_shared/persist-letterhead.tex   alignment, letterhead modes, \geometry not \newgeometry
 src-tauri/storage/templates/legal-notice.tex                 {{ANNEXURE_PAGES}}, annexure input
 src-tauri/storage/templates/legal-notice.json                ANNEXURE_PAGES declared
 src-tauri/src/services/latex.rs                              Attachment, compile_with, TEXINPUTS, engine_available
@@ -157,15 +232,16 @@ src/pages/Drafting/SmartForm.tsx                             wires the picker in
 
 ---
 
-## 5. Tests
+## 7. Tests
 
 ```
-cargo test --lib     219 passed   (was 204)
+cargo test --lib     238 passed   (was 204)
 pnpm build           PASS
 ```
 
-New: 12 in `services::annexures` (8 unit, 4 real compiles reading the PDF back
-with `pdftotext`), 3 in `services::latex::attachment_tests`.
+New: 12 in `services::annexures` (8 unit, 4 real compiles read back with
+`pdftotext`), 3 in `services::latex::attachment_tests`, 19 in `services::layout`
+(9 unit, 10 real compiles measured with `pdfinfo`, `pdftotext` and `pdffonts`).
 
 The compile tests build their own fixtures — a multi-page PDF from the same
 engine that will include it, and a hand-built 8×8 greyscale PNG with correct
@@ -174,7 +250,7 @@ there is no image crate in the tree.
 
 ---
 
-## 6. Open
+## 8. Open
 
 - **Staged files are not separately vaulted.** They are held in memory for the
   drafting session. What is retained is the generated document, which contains
@@ -184,5 +260,7 @@ there is no image crate in the tree.
   they carry a file rather than fields.
 - **The boilerplate notice language is still my reconstruction** from the notice
   you sent. It needs your read-through before anything goes out on it.
+- **Margins are not yet a setting.** They are the one page-formatting control
+  left out; say if you want them and it is a small addition to the same panel.
 - Autofill from the matter record; clause libraries; M5 Step 3d; sidecar
   bundling (B03).

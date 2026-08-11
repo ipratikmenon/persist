@@ -13,6 +13,7 @@ use base64::engine::general_purpose::STANDARD as BASE64;
 use base64::Engine as _;
 use crate::services::annexures::{self, Annexure};
 use crate::services::latex::{self, Attachment, CompileMode, Field};
+use crate::services::layout::{self, DocumentLayout};
 use crate::services::templates::{self, FieldError, FieldKind, TemplateManifest};
 use crate::storage::metadata;
 use crate::AppState;
@@ -36,6 +37,12 @@ pub struct RenderDocumentInput {
     /// Documents to attach as proof, in the order they should be marked.
     #[serde(default)]
     pub annexures: Vec<AnnexureInput>,
+    /// Paper, typeface, spacing, page numbering, letterhead placement.
+    ///
+    /// Absent means the firm's house format. This is not template content — see
+    /// services/layout.rs — so it is not in `values` and no manifest declares it.
+    #[serde(default)]
+    pub layout: DocumentLayout,
 }
 
 /// One file the attorney has attached, in the order they put it in.
@@ -147,6 +154,12 @@ pub async fn render_document(
             }
         };
 
+    // Refused here rather than at the engine, where a bad size would surface as
+    // a LaTeX error instead of a sentence.
+    if let Err(e) = input.layout.validate() {
+        return Ok(RenderResult { problem: Some(e.to_string()), ..RenderResult::default() });
+    }
+
     // A template that does not declare the annexure keys cannot carry
     // annexures. Binding them anyway would fail the render on an unused key;
     // dropping them silently would produce a notice missing its proof.
@@ -172,6 +185,20 @@ pub async fn render_document(
                 ("ANNEXURE_PAGES".to_owned(), annexures::pages_block(&annexures)),
             ]),
         );
+    }
+
+    // The layout is staged like any other file the compile needs;
+    // _shared/persist-base.tex reads it by name.
+    let mut attachments = attachments;
+    match Attachment::new(layout::LAYOUT_FILE, input.layout.to_latex().into_bytes()) {
+        Ok(staged) => attachments.push(staged),
+        Err(e) => {
+            log::error!("could not stage the document layout: {e:#}");
+            return Ok(RenderResult {
+                problem: Some("The page settings could not be applied.".to_owned()),
+                ..RenderResult::default()
+            });
+        }
     }
 
     let pdf = match latex::compile_with(&input.template_id, &fields, input.mode, &attachments).await

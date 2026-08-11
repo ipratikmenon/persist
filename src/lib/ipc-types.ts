@@ -742,6 +742,63 @@ export interface FieldError {
 
 export type CompileMode = 'draft' | 'final';
 
+// ---------------------------------------------------------------------------
+// Page setup — mirrors src-tauri/src/services/layout.rs
+//
+// None of this is template content. A template describes what a document says;
+// what size the paper is has nothing to do with that, so page setup is sent
+// alongside `values`, not inside it.
+// ---------------------------------------------------------------------------
+
+export type Paper = 'a4' | 'legal';
+
+/** A closed list. Each one is verified in Keel to resolve, to have a real bold
+ *  and italic, and to be able to set the rupee sign. */
+export type BodyFont =
+  | 'notoSerif'
+  | 'notoSans'
+  | 'times'
+  | 'pagella'
+  | 'schola'
+  | 'helvetica';
+
+export type LineSpacing = 'single' | 'oneAndHalf' | 'double';
+
+export type PageNumbers = 'none' | 'plain' | 'page' | 'pageOfTotal';
+
+export type Letterhead =
+  | { type: 'allPages' }
+  | { type: 'firstPageOnly' }
+  /** 1-indexed, as printed. */
+  | { type: 'pages'; pages: number[] }
+  | { type: 'none' };
+
+export interface DocumentLayout {
+  paper: Paper;
+  font: BodyFont;
+  fontSizePt: number;
+  lineSpacing: LineSpacing;
+  bold: boolean;
+  italic: boolean;
+  letterhead: Letterhead;
+  pageNumbers: PageNumbers;
+  /** What the first page is numbered. */
+  pageNumberStart: number;
+}
+
+/** The firm's house format. Must match `DocumentLayout::default()` in Keel. */
+export const DEFAULT_LAYOUT: DocumentLayout = {
+  paper: 'a4',
+  font: 'notoSerif',
+  fontSizePt: 12,
+  lineSpacing: 'single',
+  bold: false,
+  italic: false,
+  letterhead: { type: 'allPages' },
+  pageNumbers: 'pageOfTotal',
+  pageNumberStart: 1,
+};
+
 export interface RenderDocumentInput {
   templateId: string;
   values: Record<string, string>;
@@ -750,6 +807,9 @@ export interface RenderDocumentInput {
   matterId?: string;
   /** Documents to attach as proof, in the order they should be marked. */
   annexures?: AnnexureInput[];
+  /** Paper, typeface, spacing, numbering, letterhead placement. Omit for the
+   *  firm's house format. */
+  layout?: DocumentLayout;
 }
 
 /**
