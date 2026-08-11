@@ -34,7 +34,7 @@
 
 use crate::db::queries::billing::{self as bq, FirmPartnerRow};
 use crate::services::latex::{self, Field};
-use crate::services::templates::{FieldKind, TemplateManifest};
+use crate::services::templates::{FieldKind, FieldValue, TemplateManifest};
 use crate::SessionData;
 use anyhow::{bail, Result};
 use chrono::{Datelike, NaiveDate};
@@ -244,7 +244,7 @@ fn lines_block(text: &str) -> Field {
 pub async fn document_fields(
     pool: &SqlitePool,
     manifest: &TemplateManifest,
-    values: &HashMap<String, String>,
+    values: &HashMap<String, FieldValue>,
     signed_in: Option<&SessionData>,
     today: NaiveDate,
 ) -> Result<HashMap<String, Field>> {
@@ -272,7 +272,7 @@ pub async fn document_fields(
     }
 
     if computed.contains("RECIPIENT_ADDRESS_BLOCK") {
-        let typed = values.get("RECIPIENT_ADDRESS").map(String::as_str).unwrap_or("");
+        let typed = values.get("RECIPIENT_ADDRESS").map(FieldValue::as_scalar).unwrap_or("");
         assembled.insert("RECIPIENT_ADDRESS_BLOCK".to_owned(), lines_block(typed));
     }
 
@@ -581,9 +581,9 @@ mod tests {
     async fn the_addressee_block_is_built_from_what_the_attorney_typed() {
         let pool = test_pool().await;
         let m = manifest(&["RECIPIENT_ADDRESS_BLOCK"]);
-        let values: HashMap<String, String> = [(
+        let values: HashMap<String, FieldValue> = [(
             "RECIPIENT_ADDRESS".to_owned(),
-            "House No. 460/21,\nLucknow -- 226003".to_owned(),
+            FieldValue::from("House No. 460/21,\nLucknow -- 226003"),
         )]
         .into_iter()
         .collect();
@@ -638,7 +638,7 @@ mod compile_tests {
     }
 
     /// What the attorney fills in on the form, from the firm's own notice.
-    fn typed_values() -> HashMap<String, String> {
+    fn typed_values() -> HashMap<String, FieldValue> {
         [
             ("RECIPIENT_NAME", "Mr. Mohammed Danish"),
             ("RECIPIENT_ADDRESS", "House No. 460/21,\nLucknow -- 226003"),
@@ -650,7 +650,7 @@ mod compile_tests {
             ("CLIENT_ADDRESS", "A-004, Mangal Apartment, New Delhi-110096"),
         ]
         .into_iter()
-        .map(|(k, v)| (k.to_owned(), v.to_owned()))
+        .map(|(k, v)| (k.to_owned(), FieldValue::from(v)))
         .collect()
     }
 
@@ -667,7 +667,7 @@ mod compile_tests {
             .iter()
             .filter(|spec| !spec.input_only)
             .map(|spec| {
-                let raw = values.get(&spec.key).map(String::as_str).unwrap_or("");
+                let raw = values.get(&spec.key).map(FieldValue::as_scalar).unwrap_or("");
                 (spec.key.clone(), Field::text(raw))
             })
             .collect();

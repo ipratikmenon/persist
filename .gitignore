@@ -36,6 +36,9 @@ files_latest/
 
 # Claude Code local settings
 .claude/settings.local.json
+# Subagent git worktrees — separate checkouts of this same repo, created and
+# removed per task. Committing them would nest the repo inside itself.
+.claude/worktrees/
 
 # Screenshot harness artefacts (the harness itself is tracked)
 dist-screenshots

@@ -22,123 +22,108 @@
 
 > Fill this section at the start of a session. Clear it when done.
 
-**Nothing in progress.** S24 fixed the letterhead alignment, built annexures,
-and made page formatting a setting rather than something a drafter does by hand.
-On `claude/new-session-dbqe5o`.
+**Nothing in progress.** S24 did the letterhead, annexures and page setup. S25
+ran three agents in parallel — margins, repeating groups, and the firm's own
+identity — and merged all three. On `claude/new-session-dbqe5o`.
 
-**Letterhead alignment.** The partner names and addresses did not line up with
-the mark. Cropped both headers at 150 dpi and found three things, all fixed: the
-block set its own leading with `\\[1pt]` between lines on top of the font's,
-making it half again as tall; the mark was top-aligned against a block it should
-have been centred against; and the rule between the partners ran the full width.
-`geometry` now uses `includehead`/`includefoot`, so the bands sit where they do
-on the firm's own notices rather than against the paper edge.
+### S24 — letterhead, annexures, page setup
 
-**Annexures.**
+**Letterhead alignment.** The partner blocks did not line up with the mark.
+Cropped both headers at 150 dpi and found three faults: the block set its own
+leading with `\\[1pt]` between lines on top of the font's; the mark was
+top-aligned against a block it should have been centred against; the rule ran
+the full width. `includehead`/`includefoot` so the bands are not pinned to the
+paper edge.
 
-  ✅ `_shared/persist-annexures.tex` — `\annexurepdf`, `\annexureimage`,
-     `\annexurestamp`, and the list macros.
-  ✅ `services/annexures.rs` — marks allocated A, B, C from the attorney's
-     order; the printed list and the appended pages built from one `Vec` so
-     they cannot disagree; file type sniffed from the bytes.
-  ✅ `latex::Attachment` + `compile_with` — files staged into the compile
-     directory, names refused unless `[a-z0-9._-]`, compile directory on
-     TEXINPUTS.
-  ✅ `stage_annexure` / `discard_annexure` — the attorney picks a file through
-     the OS dialog, Keel reads it, checks the type, strips its metadata and
-     holds it for the session. Deck never handles the bytes.
-  ✅ Deck: a checkbox, "+ Add annexure", a name, "Choose file". Marks shown
-     against each row come back from Keel after a render.
-
-An annexure page carries the document and its mark and nothing else. No cover
-sheet, no caption, no letterhead over a third party's receipt.
+**Annexures.** `_shared/persist-annexures.tex` + `services/annexures.rs`. Marks
+allocated A, B, C from the attorney's order; the printed list and the appended
+pages built from one `Vec` so they cannot disagree; type sniffed from the bytes.
+`latex::Attachment` + `compile_with` stage files into the compile directory.
+`stage_annexure`/`discard_annexure`: the attorney picks a file through the OS
+dialog, Keel reads it, checks the type, strips its metadata and holds it for the
+session — Deck never handles the bytes. **An annexure page carries the document
+and its mark and nothing else.**
 
 **Page setup — `services/layout.rs`.** Paper (A4/Legal), typeface, size, line
-spacing, document-wide bold/italic, page numbering (four forms, plus a starting
-number for a document bound into a larger paper-book), and which pages carry the
-letterhead (every page / first only / named pages / none).
+spacing, bold/italic, page numbering (four forms + a starting number), and which
+pages carry the letterhead. Not template fields: compiled to a
+`persist-layout.tex` staged beside the template. `first page only` sets the
+letterhead as body content rather than a running head, because `\headheight` is
+one value for the document and a running head would leave every continuation
+sheet a four-centimetre blank band.
 
-None of it is a template field. It compiles to a `persist-layout.tex` staged
-beside the template, which `_shared/persist-base.tex` reads; a compile that
-supplies no layout gets the defaults and looks exactly as it did.
+### S25 — three parallel agents, all merged
 
-`first page only` does **not** use a running head. `\headheight` is one value
-for the whole document, so running the letterhead as a head would give every
-continuation sheet a four-centimetre blank band. In that mode the letterhead is
-set as body content at the start of page one and the band shrinks to what the
-page number needs.
+**Margins** (`layout.rs`, both `_shared` templates, `PageSetup.tsx`). Per-side
+millimetres rather than Normal/Narrow/Wide: a forum that specifies a margin
+specifies a measurement, usually the left one, for binding. Validation refuses a
+text block narrower than the 116mm the letterhead's own logo and partner blocks
+occupy.
 
-⚠️ **Your own notice is A4** — measured, all nineteen pages. Legal is now a
-switch, defaulting to A4 to match what the firm actually sends. Tell me if
-filings should default the other way and it is a one-line change.
+**Repeating groups — the `list` field kind** (`templates.rs`, `drafting.rs`,
+`FormField.tsx`). `FieldValue` is now `Scalar | Rows`. The manifest declares the
+shape of one row and how it is set; Keel renders the row template once per row
+with a generated `{{INDEX}}`, every cell escaped. **This is what makes the Legal
+Notice usable** — its numbered sections were a `computed` block nothing filled.
 
-**Three faults found by compiling and measuring rather than by reading:**
+**The firm's own identity** (`0013_firm_letterhead.sql`, `services/firm.rs`).
+Every `computed` field on the notice — both partners, the website, the contact,
+the registered office, the date, the signature block — bound to an empty string,
+because `firm_settings` had billing columns and nothing else. A rendered notice
+had a blank letterhead. Partners are their own table keyed to `users`, so a
+third partner is an INSERT rather than a migration.
 
-  1. **Only the Noto faces carry ₹.** Every Times, Palatino and Century
-     Schoolbook clone in TeX Live drops U+20B9 silently — clean compile, no
-     warning, a notice demanding "1,04,000" with no currency sign. The preamble
-     now routes ₹ through a Noto fallback via `newunicodechar`, which catches it
-     in template source and attorney-typed text alike.
-     `every_offered_font_can_set_the_rupee` compiles the real subject line in
-     each offered face.
-  2. **Legal paper produced A4.** `keyval` does not expand a macro in key
-     position, so `\geometry{\persistpaper}` matched nothing and said nothing.
-     Now `papersize={w,h}`, which takes values.
-  3. **`\newgeometry` re-derives the paper from the class options**, discarding
-     the papersize set earlier — so even after (2) a Legal notice came out A4.
-     `\applyletterhead` runs in the preamble, where plain `\geometry` is allowed
-     and accumulates.
+### ⚠️ THE FIND OF THE SESSION — validation that never ran
 
-**Two negative controls run before trusting the annexure guards:**
+`FieldKind` is `#[serde(tag = "type", rename_all = "camelCase")]`. `rename_all`
+renames **variants**; fields inside a struct variant need `rename_all_fields`,
+which was missing. So every `maxWords`, `maxLength` and `notBefore` in the
+shipped library matched nothing, fell through `#[serde(default)]` and became
+`None`. Clean parse, no warning, no error — and the examination reply's
+1500-word registry limit had never once been enforced. Proved by parsing
+`{"type":"multiline","maxWords":120}` and getting `max_words: None`.
 
-  1. The obvious implementation of the mark — a fancyhdr page style — was
-     compiled and measured: it inherits `\applyletterhead`'s 108pt head band and
-     lands the mark at y=137pt with the receipt's own first line at y=144pt, on
-     top of the evidence. `the_mark_sits_at_the_top_of_the_page_clear_of_the_content`
-     fails on it and passes on the shipped one.
-  2. Removing the compile directory from TEXINPUTS breaks
-     `a_staged_file_is_reachable_by_name_from_the_template`.
+Found by accident: a test written expecting to pass, that failed. Fixed with
+`rename_all_fields = "camelCase"`, and two tests now stand in for the
+`deny_unknown_fields` that an internally-tagged enum cannot carry.
 
-  Worth recording: I first wrote in the template that the fancyhdr version puts
-  the *following* annexure's letter on the last page of the one before it. The
-  negative control disproved that — the marks come out right either way. The
-  comment now states the reason that is actually true.
+### Faults found by measuring rather than reading
 
-⚠️ Open: staged annexures are held in memory and are not separately vaulted.
-What is retained is the generated document, which contains them; a restart loses
-an unfinished draft's attachments.
+  - **Only the Noto faces carry ₹.** Every Times, Palatino and Century
+    Schoolbook clone in TeX Live drops U+20B9 silently. ₹ is now routed through
+    a Noto fallback via `newunicodechar`, catching it in template source and
+    typed text alike.
+  - **Legal paper produced A4.** `keyval` does not expand a macro in key
+    position, so `\geometry{\persistpaper}` matched nothing and said nothing.
+  - **`\newgeometry` re-derives the paper from the class options**, so Legal
+    came out A4 again even after that fix.
+  - **A margin set in `persist-base.tex` alone is discarded on letterhead**,
+    because `\applyletterhead` re-runs `\geometry`. Caught by a test that
+    measures the text block on a letterhead document specifically: reverting the
+    flow-through gives 21.9mm where 45.0mm was asked for, while the plain-page
+    test stays green.
 
-**THE STRUCTURAL GAP THIS EXPOSED — repeating groups.**
+### Merge note
 
-A real notice carries N numbered sections and N payment tranches. The one you
-sent had ten and seven. Neither count is knowable when the template is written,
-and the manifest today supports only scalar fields. Declaring `TRANCHE_1`…
-`TRANCHE_7` would be a guess at the eighth.
+The three agents worked in isolated worktrees off `2bc0406`. Git auto-merged all
+three without conflict, and the result **did not compile**: repeating groups
+changed `values` to `HashMap<String, FieldValue>` while the firm resolver still
+took `HashMap<String, String>`. Resolved by hand — `firm.rs` now reads the same
+value model as everything else. A clean textual merge is not a correct merge.
 
-So the notice's repeating parts arrive as `computed` blocks that Keel assembles.
-That works and it compiles, but the attorney cannot yet **add a row** in the
-form — which is what the Smart Form Compiler needs to be usable for a notice.
-(Annexures are now the exception: they are a real repeating list in the form,
-because they carry a file rather than fields.)
+⚠️ Open:
 
-The design, for the next session:
-
-  - A `list` field kind in the manifest: `itemFields` (the shape of one row),
-    `itemLabel` ("Add a payment"), `minItems`/`maxItems`.
-  - Values stop being `HashMap<String, String>`. They become a `FieldValue` that
-    is either a scalar or a list of rows — which ripples through `validate`,
-    `to_latex_fields`, the Deck types and the form.
-  - Keel assembles the rows into one LaTeX block per list, so the template keeps
-    a single placeholder.
-
-That is a real refactor, not an afternoon, and it is the highest-value thing
-left in M9. **I started it in S23 and reverted it** rather than leave a
-half-built field kind in the manifest.
-
-⚠️ Also still open: autofill from the matter record, clause libraries, M5 Step 3d
-(object storage, email), sidecar bundling (B03). And the boilerplate notice
-language in `legal-notice.tex` is still my reconstruction from your notice — it
-needs a read-through before anything goes out on it.
+  - **`tm-examination-reply` has the same defect the notice had** — `FIRM_NAME`
+    and `FIRM_ADDRESS` still render blank. Same class, different template.
+  - Staged annexures are held in memory and are not separately vaulted. What is
+    retained is the generated document, which contains them.
+  - Payment tranches on the notice are still a `computed` block. The `list` kind
+    supports them; turning them into a list is a template decision.
+  - No autofill of a list row from the matter record.
+  - The boilerplate notice language is still my reconstruction from the notice
+    you sent. It needs a read-through before anything goes out on it.
+  - Autofill from the matter record generally; clause libraries; M5 Step 3d;
+    sidecar bundling (B03).
 
 ---
 
@@ -575,6 +560,7 @@ HETZNER_SYNC_URL=       # Sync server URL (Phase 2 M5)
 | Apr 17 2026 | S07: Phase 2 M4 Billing — spec written, migration 0006_billing.sql (5 tables), queries/billing.rs (5 tests), commands/billing.rs (13 cmds), lib.rs billing commands registered, tauri.ts billing wrappers, BillingHome/TimeTracker/InvoiceList/FirmSettingsPanel. Also: new spec files placed in specs/ (module-02-docketing, auth-rbac, hpas-integration, module-03-documents updated), PROGRESS.md reconciled | specs/*.md, 0006_billing.sql, queries/billing.rs, commands/billing.rs, pages/Billing/*.tsx | cargo test: 30/30, pnpm build: PASS (467 modules, 457kb) |
 | Apr 19 2026 | S08: Phase 2 M4 Billing UI complete — InvoiceDetail.tsx (back/actions/line items/GST panel/payment modal), InvoiceComposer.tsx (client→matter→entries→fixed-fee→GST type→live totals→create), InvoiceList wired (row click→detail, New Invoice→composer), latex.rs real impl (finds pdflatex, tempdir compile, 3 tests), invoice.tex GST-compliant template, client lookup added to generate_invoice_pdf, tempfile moved to [dependencies] | pages/Billing/InvoiceDetail.tsx, InvoiceComposer.tsx, InvoiceList.tsx, services/latex.rs, storage/templates/invoice.tex, commands/billing.rs, Cargo.toml | cargo test: 33/33, pnpm build: PASS (469 modules, 482kb) |
 | Jul 19 2026 | S09: Expansion roadmap (planning only, no code) — researched adalat.ai + visiocyber.ai; wrote specs/expansion-roadmap.md defining Track A Courtroom Intelligence (M25 transcription, M26 hearings/cause lists, M27 doc digitization, M28 research/summarization, M29 WhatsApp chatbot) and Track B Startup Legal SaaS (M30 Startup Legal OS, M31 DP Audit Engine → Phase 2.5, M32 Compliance & AI Governance, M33 Assessments); added Phases 2.5/8/9 to TASKS.md; 4 architecture decisions logged | specs/expansion-roadmap.md (new), TASKS.md, PROGRESS.md, SESSION-LOG/2026-07-19-S09-expansion-roadmap.md | No code changed — tests unaffected (33/33 as of S08) |
+| Aug 11 2026 | S25: three agents in parallel, all merged. **Margins** — per-side millimetres, flowed through `\applyletterhead` as well as `persist-base`, since that second `\geometry` silently discards the first. **Repeating groups** — `FieldKind::List` + `FieldValue::{Scalar,Rows}`; the manifest declares one row's shape and how it is set, Keel renders it per row with a generated index, every cell escaped. Makes the Legal Notice usable: its numbered sections were a `computed` block nothing filled. **The firm's identity** — migration `0013`, `firm_partners` as its own table, `services/firm.rs`; every letterhead field on the notice previously bound to an empty string, so a rendered notice had a blank letterhead. **The find: validation that never ran.** `rename_all` renames enum *variants*; struct-variant fields need `rename_all_fields`, which was missing — so every `maxWords`/`maxLength`/`notBefore` in the shipped library parsed to `None`. Clean parse, no warning, and the examination reply's 1500-word registry limit had never been enforced. **Merge note:** git auto-merged all three worktrees without conflict and the result did not compile — repeating groups changed the value type under the firm resolver. Resolved by hand | src-tauri/src/services/{templates,firm (new),layout}.rs, src-tauri/src/db/migrations/0013_firm_letterhead.sql (new), src-tauri/src/db/{SCHEMA.md,queries/billing.rs,mod.rs}, src-tauri/src/commands/{drafting,billing}.rs, storage/templates/{legal-notice.{tex,json},_shared/persist-{base,letterhead}.tex}, src/components/drafting/{FormField,PageSetup}.tsx, src/pages/{Drafting/SmartForm,Billing/FirmSettingsPanel}.tsx, src/lib/ipc-types.ts, screenshots/* | cargo test: 301/301 (was 238), Deck build PASS, 22 screenshots |
 | Aug 11 2026 | S24: Letterhead alignment, annexures, and page setup. **Alignment:** partner blocks set their own leading on top of the font's, the mark was top-aligned against a block it should have been centred against, the rule ran full width; `includehead`/`includefoot` so the bands are not pinned to the paper edge. Measured off 150dpi crops, not guessed. **Annexures:** `_shared/persist-annexures.tex`, `services/annexures.rs` (marks A/B/C from the attorney's order; printed list and appended pages from one `Vec`; type sniffed from bytes), `latex::Attachment` + `compile_with` (staged into the compile directory, names refused unless `[a-z0-9._-]`, compile dir on TEXINPUTS), `stage_annexure`/`discard_annexure` (OS dialog → Keel reads, checks, strips metadata, holds for the session), Deck picker whose marks come back from Keel. An annexure page carries the document and its mark and nothing else. **Page setup — `services/layout.rs`:** paper (A4/Legal), typeface, size, line spacing, bold/italic, four page-number forms plus a starting number, and letterhead on every page / first only / named pages / none. Not template fields — compiled to a `persist-layout.tex` staged beside the template. `first page only` sets the letterhead as body content rather than a running head, because `\headheight` is one value for the document and a running head would leave every continuation sheet a 4cm blank band. **Three faults found by measuring, not reading:** only the Noto faces carry ₹, so every Times/Palatino/Schoolbook option dropped it silently (now routed through a Noto fallback via `newunicodechar`); `keyval` does not expand a macro in key position, so `\geometry{\persistpaper}` silently matched nothing and Legal came out A4; and `\newgeometry` re-derives paper from the class options, so it came out A4 again even after that was fixed. **Two negative controls** on the annexure mark and on TEXINPUTS staging, both verified to fail on the broken version. One claim I had written into a template was disproved by its own control and corrected | src-tauri/storage/templates/_shared/{persist-annexures.tex (new),persist-base.tex,persist-letterhead.tex}, storage/templates/legal-notice.{tex,json}, src-tauri/src/services/{annexures.rs (new),layout.rs (new),latex.rs,mod.rs}, src-tauri/src/commands/drafting.rs, src-tauri/src/lib.rs, src/components/drafting/{AnnexureList,PageSetup}.tsx (new), src/pages/Drafting/SmartForm.tsx, src/lib/{ipc-types,tauri}.ts | cargo test: 238/238 (was 204), Deck build PASS |
 | Aug 11 2026 | S23: Firm letterhead + Legal Notice. `_shared/persist-letterhead.tex` — the firm's mark (logo extracted from a real notice), both partners with designation, phone and email, the registered-office footer and `Page N of M` via `lastpage`, applied to every page because a notice is served page by page. Correspondence macros: `\noticebanner`, `\noticedate`, `\noticesubject`, `\noticesection`, `noticebody`. `legal-notice.{tex,json}` follows the firm's house format — addressee block, mode of service, without-prejudice marker, subject, instruction paragraph, numbered sections, closing, signature block with enrolment numbers, annexures. Compiles clean against the letterhead; header band measured rather than guessed after the partner block printed over the body twice | src-tauri/storage/templates/{_shared/persist-letterhead.tex,_shared/assets/persistas-logo.png,legal-notice.tex,legal-notice.json}, src-tauri/src/services/latex.rs | cargo test: 204/204 (was 203) |
 | Aug 11 2026 | S22: Ownership + M9.8. **Ownership:** `COPYRIGHT.md` records Persist as proprietary software and the exclusive property of Persistas & Partners, with the templates called out as professional work product; carried into the Tauri bundle metadata, both Cargo manifests, both package.json files and CLAUDE.md. **M9.8 Smart Form Compiler:** `pages/Drafting/{DraftingHome,SmartForm}.tsx` and `components/drafting/FormField.tsx` — split-screen guided form and live PDF preview, generated entirely from the template manifests so nothing in Deck knows what a trade mark is. Preview debounced at 600ms against a ~1.4s compile, stale renders discarded by sequence, blob URLs revoked rather than leaked per keystroke. Generate files the PDF into the vault against the matter with the template version in the filename. `render_document` switched to base64 — a byte vector crosses Tauri as a JSON number array, ~4x | src/pages/Drafting/** (new), src/components/drafting/FormField.tsx (new), src/lib/{ipc-types,tauri}.ts, src/App.tsx, src/components/shell/AppShell.tsx, src-tauri/src/commands/drafting.rs, COPYRIGHT.md (new), tauri.conf.json, Cargo.toml x2, package.json x2, CLAUDE.md, screenshots/* | cargo test: 203/203, Deck build PASS, 16 screenshots |
