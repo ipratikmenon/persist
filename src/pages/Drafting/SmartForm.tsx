@@ -12,8 +12,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router';
 import { motion, useReducedMotion } from 'motion/react';
 import { keel } from '@/lib/tauri';
-import type { FieldError, TemplateManifest } from '@/lib/ipc-types';
+import type {
+  AnnexureMark,
+  DraftAnnexure,
+  FieldError,
+  TemplateManifest,
+} from '@/lib/ipc-types';
 import { FormField, isVisible } from '@/components/drafting/FormField';
+import { AnnexureList } from '@/components/drafting/AnnexureList';
 import { colors, fonts, fontSizes, radius, shadows, spacing } from '@/design-system/tokens';
 
 /** How long to wait after a keystroke before re-rendering the preview.
@@ -22,6 +28,12 @@ import { colors, fonts, fontSizes, radius, shadows, spacing } from '@/design-sys
  *  work faster than it drains. 600ms is roughly the pause at the end of a
  *  thought, which is when a preview is actually worth looking at. */
 const PREVIEW_DEBOUNCE_MS = 600;
+
+/** The computed fields a template declares when it can carry annexures.
+ *
+ *  Mirrors ANNEXURE_KEYS in commands/drafting.rs. A template without both is
+ *  one Keel will refuse annexures for, so the picker is not offered. */
+const ANNEXURE_KEYS = ['ANNEXURES_BLOCK', 'ANNEXURE_PAGES'];
 
 export function SmartForm() {
   const { templateId = '' } = useParams();
@@ -39,6 +51,8 @@ export function SmartForm() {
   const [generating, setGenerating] = useState(false);
   const [saved, setSaved] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [annexures, setAnnexures] = useState<DraftAnnexure[]>([]);
+  const [annexureMarks, setAnnexureMarks] = useState<AnnexureMark[]>([]);
 
   // Guards against an older, slower render overwriting a newer one.
   const renderSeq = useRef(0);
@@ -62,6 +76,22 @@ export function SmartForm() {
     );
   }, [manifest, values]);
 
+  const takesAnnexures = useMemo(
+    () =>
+      !!manifest &&
+      ANNEXURE_KEYS.every((key) => manifest.fields.some((f) => f.key === key)),
+    [manifest],
+  );
+
+  // Only the rows that actually have a file behind them.
+  const attachable = useMemo(
+    () =>
+      annexures
+        .filter((a): a is DraftAnnexure & { stagedId: string } => !!a.stagedId)
+        .map((a) => ({ stagedId: a.stagedId, title: a.title })),
+    [annexures],
+  );
+
   const missingRequired = useMemo(
     () => visibleFields.filter((f) => f.required && !(values[f.key] ?? '').trim()),
     [visibleFields, values],
@@ -82,6 +112,9 @@ export function SmartForm() {
           values,
           mode,
           matterId: mode === 'final' ? matterId : undefined,
+          // A row with no file yet is a name the attorney is still typing, not
+          // an annexure. Sending it would mark a gap in the bundle.
+          annexures: attachable,
         });
 
         // A render that finished after a newer one started is stale.
@@ -101,6 +134,7 @@ export function SmartForm() {
         }
 
         setProblem(result.problem);
+        setAnnexureMarks(result.annexureMarks);
         if (mode === 'final' && result.documentId) setSaved(result.documentId);
       } catch (e) {
         if (seq === renderSeq.current) {
@@ -113,7 +147,7 @@ export function SmartForm() {
         }
       }
     },
-    [manifest, values, matterId],
+    [manifest, values, matterId, attachable],
   );
 
   // Live preview. Only once every visible required field has something in it —
@@ -125,7 +159,7 @@ export function SmartForm() {
     const timer = setTimeout(() => render('draft'), PREVIEW_DEBOUNCE_MS);
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [values, manifest, missingRequired.length]);
+  }, [values, attachable, manifest, missingRequired.length]);
 
   if (loadError) {
     return <Banner tone="error" message={loadError} />;
@@ -212,11 +246,19 @@ export function SmartForm() {
             />
           ))}
 
+          {takesAnnexures && (
+            <AnnexureList
+              annexures={annexures}
+              marks={annexureMarks}
+              onChange={setAnnexures}
+            />
+          )}
+
           <div
             style={{
               borderTop: `0.5px solid ${colors.border}`,
               paddingTop: spacing[5],
-              marginTop: spacing[2],
+              marginTop: spacing[5],
             }}
           >
             {saved ? (

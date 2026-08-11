@@ -49,6 +49,7 @@ import type {
   UploadDocumentInput,
   TemplateManifest,
   RenderDocumentInput,
+  StagedAnnexureInfo,
   RenderResult,
 } from './ipc-types';
 
@@ -235,6 +236,12 @@ export const keel = {
      *  and, given a matterId, files the result into the vault. */
     render: (input: RenderDocumentInput) =>
       invoke<RenderResult>('render_document', { input }),
+    /** Hand Keel a file the attorney picked. Keel reads, checks and cleans it,
+     *  and holds it until the document is generated — so a preview that
+     *  re-renders on every pause does not resend the bytes. */
+    stageAnnexure: (path: string) =>
+      invoke<StagedAnnexureInfo>('stage_annexure', { path }),
+    discardAnnexure: (id: string) => invoke<void>('discard_annexure', { id }),
   },
 
   portalUsers: {

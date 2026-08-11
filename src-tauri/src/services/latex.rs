@@ -66,7 +66,10 @@ impl Field {
         Field(latex.into())
     }
 
-    fn as_str(&self) -> &str {
+    /// The LaTeX this field will contribute. `pub(crate)` so a caller that
+    /// assembles a block can assert on what it built; not public, because
+    /// outside Keel a `Field` should only ever be something you construct.
+    pub(crate) fn as_str(&self) -> &str {
         &self.0
     }
 }
@@ -96,6 +99,50 @@ pub fn escape(input: &str) -> String {
         }
     }
     out
+}
+
+// ---------------------------------------------------------------------------
+// Attachments
+// ---------------------------------------------------------------------------
+
+/// A file staged beside the template for one compilation.
+///
+/// The annexures of a legal notice are documents out of the vault, and the
+/// engine has to be able to open them by name — `\includepdf{annexure-01.pdf}`.
+/// They are written into the same temporary directory as the rendered .tex and
+/// go away with it, so decrypted client material never lands anywhere
+/// persistent.
+///
+/// The name is checked rather than trusted. It reaches a filesystem path and a
+/// LaTeX argument, and the only reason `../../.ssh/id_rsa` is not a working
+/// attack here is that [`Attachment::new`] refuses it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Attachment {
+    name: String,
+    bytes: Vec<u8>,
+}
+
+impl Attachment {
+    pub fn new(name: impl Into<String>, bytes: Vec<u8>) -> anyhow::Result<Self> {
+        let name = name.into();
+
+        let shape_is_safe = !name.is_empty()
+            && name.len() <= 64
+            && !name.starts_with('.')
+            && name.chars().all(|c| {
+                c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-' || c == '_' || c == '.'
+            });
+
+        if !shape_is_safe {
+            bail!("unsafe attachment name: {name:?}");
+        }
+        Ok(Attachment { name, bytes })
+    }
+
+    /// The filename the template refers to.
+    pub fn name(&self) -> &str {
+        &self.name
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -143,6 +190,19 @@ pub async fn compile(
     fields: &HashMap<String, Field>,
     mode: CompileMode,
 ) -> anyhow::Result<Vec<u8>> {
+    compile_with(template_id, fields, mode, &[]).await
+}
+
+/// Compile with files staged beside the template — annexures, exhibits.
+///
+/// The attachments are written into the compile directory under the names the
+/// rendered template refers to. Keel chooses those names; see [`Attachment`].
+pub async fn compile_with(
+    template_id: &str,
+    fields: &HashMap<String, Field>,
+    mode: CompileMode,
+    attachments: &[Attachment],
+) -> anyhow::Result<Vec<u8>> {
     let template_dir = find_templates_dir()?;
     let template_path = template_dir.join(format!("{template_id}.tex"));
 
@@ -150,7 +210,14 @@ pub async fn compile(
         .with_context(|| format!("failed to read template: {}", template_path.display()))?;
 
     let rendered = render(&source, fields)?;
-    run_engine_in(template_id, &rendered, Some(&template_dir), mode.passes()).await
+    run_engine_in(
+        template_id,
+        &rendered,
+        Some(&template_dir),
+        mode.passes(),
+        attachments,
+    )
+    .await
 }
 
 /// Compile a trivial document so the font cache is built before an attorney is
@@ -170,7 +237,7 @@ pub async fn warm_up() {
                          \\begin{document}₹\\end{document}\n";
 
     let started = std::time::Instant::now();
-    match run_engine_in("warmup", PROBE, None, 1).await {
+    match run_engine_in("warmup", PROBE, None, 1, &[]).await {
         Ok(_) => log::info!("LaTeX engine warm after {:?}", started.elapsed()),
         Err(e) => log::warn!("LaTeX warm-up skipped: {e:#}"),
     }
@@ -267,6 +334,7 @@ async fn run_engine_in(
     source: &str,
     search_dir: Option<&Path>,
     passes: usize,
+    attachments: &[Attachment],
 ) -> anyhow::Result<Vec<u8>> {
     let engine = find_engine()?;
 
@@ -278,6 +346,13 @@ async fn run_engine_in(
     let pdf_path = tmp_dir.path().join(format!("{stem}.pdf"));
 
     std::fs::write(&tex_path, source).context("failed to write .tex source")?;
+
+    for attachment in attachments {
+        // `Attachment::new` has already refused anything with a separator in it,
+        // so this join cannot leave the temp directory.
+        std::fs::write(tmp_dir.path().join(&attachment.name), &attachment.bytes)
+            .with_context(|| format!("failed to stage attachment {}", attachment.name))?;
+    }
 
     let mut last_log = String::new();
     for pass in 1..=passes {
@@ -294,7 +369,7 @@ async fn run_engine_in(
             ])
             // The engine must not inherit a terminal; without this a template
             // that asks a question waits for an answer nobody can give.
-            .envs(texinputs(search_dir))
+            .envs(texinputs(tmp_dir.path(), search_dir))
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
@@ -334,25 +409,59 @@ async fn run_engine_in(
 }
 
 
-/// TEXINPUTS for the child, or nothing when there is no shared directory.
+/// TEXINPUTS for the child: the compile directory, then the shared templates.
+///
+/// The compile directory comes first and is always present, because it is where
+/// staged attachments live. kpathsea resolves `\includegraphics` and
+/// `\includepdf` filenames through TEXINPUTS too, and the engine's working
+/// directory is the app's, not the compile directory — so without this an
+/// annexure is a "file not found" even though it was written moments earlier.
 ///
 /// The trailing empty entry is significant to kpathsea: it means "then the
 /// normal search path", so adding ours does not cut the engine off from its own
 /// packages.
-fn texinputs(search_dir: Option<&Path>) -> Vec<(String, String)> {
-    let Some(dir) = search_dir else { return Vec::new() };
+fn texinputs(compile_dir: &Path, search_dir: Option<&Path>) -> Vec<(String, String)> {
     let separator = if cfg!(windows) { ";" } else { ":" };
     let existing = std::env::var("TEXINPUTS").unwrap_or_default();
-    Vec::from([(
-        "TEXINPUTS".to_owned(),
-        format!("{}{separator}{existing}{separator}", dir.display()),
-    )])
+
+    let mut path = format!("{}{separator}", compile_dir.display());
+    if let Some(dir) = search_dir {
+        path.push_str(&format!("{}{separator}", dir.display()));
+    }
+    path.push_str(&existing);
+    path.push_str(separator);
+
+    Vec::from([("TEXINPUTS".to_owned(), path)])
 }
 
-/// Compile inline source with no shared-template directory. Used by tests.
+/// Is there an engine to test against?
+///
+/// Skipping keeps `cargo test` green on a machine with no TeX Live. But a suite
+/// that skips its most important tests reports success while proving nothing —
+/// which is exactly how three fatal faults reached a branch. CI sets
+/// `PERSIST_REQUIRE_LATEX=1`, and then a missing engine is a failure.
+///
+/// `pub(crate)`: every module whose output ends up in a compiled document needs
+/// this same guard, and a second copy of it would drift.
 #[cfg(test)]
-async fn run_engine(job_name: &str, source: &str) -> anyhow::Result<Vec<u8>> {
-    run_engine_in(job_name, source, None, 1).await
+pub(crate) fn engine_available() -> bool {
+    if find_engine().is_ok() {
+        return true;
+    }
+    assert!(
+        std::env::var("PERSIST_REQUIRE_LATEX").is_err(),
+        "PERSIST_REQUIRE_LATEX is set but no xelatex/lualatex was found — \
+         the compilation tests would have skipped silently"
+    );
+    eprintln!("SKIPPING LaTeX compilation tests: no xelatex/lualatex found");
+    false
+}
+
+/// Compile inline source with no shared-template directory. Used by tests —
+/// including tests in other modules that need a genuine PDF to work on.
+#[cfg(test)]
+pub(crate) async fn run_engine(job_name: &str, source: &str) -> anyhow::Result<Vec<u8>> {
+    run_engine_in(job_name, source, None, 1, &[]).await
 }
 
 /// Pull the actual error out of a LaTeX log.
@@ -701,24 +810,6 @@ Some other noise
 mod compile_tests {
     use super::*;
 
-    /// Is there an engine to test against?
-    ///
-    /// Skipping keeps `cargo test` green on a machine with no TeX Live. But a
-    /// suite that skips its most important tests reports success while proving
-    /// nothing — which is exactly how three fatal faults reached a branch. CI
-    /// sets `PERSIST_REQUIRE_LATEX=1`, and then a missing engine is a failure.
-    pub(super) fn engine_available() -> bool {
-        if find_engine().is_ok() {
-            return true;
-        }
-        assert!(
-            std::env::var("PERSIST_REQUIRE_LATEX").is_err(),
-            "PERSIST_REQUIRE_LATEX is set but no xelatex/lualatex was found — \
-             the compilation tests would have skipped silently"
-        );
-        eprintln!("SKIPPING LaTeX compilation tests: no xelatex/lualatex found");
-        false
-    }
 
     /// Everything `generate_invoice_pdf` supplies, with values chosen to be
     /// hostile: the firm's real name, a real client name with an ampersand,
@@ -854,7 +945,7 @@ mod second_template_tests {
     /// Compiler's first real form will drive.
     #[tokio::test]
     async fn the_examination_reply_compiles() {
-        if !compile_tests::engine_available() {
+        if !engine_available() {
             return;
         }
 
@@ -923,7 +1014,7 @@ mod mode_tests {
 
     #[tokio::test]
     async fn a_draft_and_a_final_both_produce_a_pdf() {
-        if !compile_tests::engine_available() {
+        if !engine_available() {
             return;
         }
 
@@ -942,11 +1033,72 @@ mod mode_tests {
         let rendered = render(&source, &fields).unwrap();
 
         for mode in [CompileMode::Draft, CompileMode::Final] {
-            let pdf = run_engine_in("modes", &rendered, None, mode.passes())
+            let pdf = run_engine_in("modes", &rendered, None, mode.passes(), &[])
                 .await
                 .unwrap_or_else(|e| panic!("{mode:?} failed: {e:#}"));
             assert!(pdf.starts_with(b"%PDF-"), "{mode:?} produced no PDF");
         }
+    }
+}
+
+#[cfg(test)]
+mod attachment_tests {
+    use super::*;
+
+    /// The attachment name reaches `tmp_dir.join(...)`. A name that can climb
+    /// out of the temp directory would let a template's annexure overwrite
+    /// anything the app can write.
+    #[test]
+    fn a_name_that_could_escape_the_compile_directory_is_refused() {
+        for bad in [
+            "../../etc/passwd",
+            "..",
+            "sub/dir.pdf",
+            "sub\\dir.pdf",
+            ".hidden",
+            "",
+            "annexure 01.pdf",   // a space ends the LaTeX argument
+            "annexure{01}.pdf",  // braces do the same
+            "ANNEXURE-01.PDF",   // uppercase is not in the generated shape
+        ] {
+            assert!(
+                Attachment::new(bad, Vec::new()).is_err(),
+                "{bad:?} should not be an acceptable attachment name"
+            );
+        }
+    }
+
+    #[test]
+    fn the_names_keel_generates_are_accepted() {
+        for good in ["annexure-01.pdf", "annexure-12.png", "annexure-03.jpg"] {
+            assert!(Attachment::new(good, Vec::new()).is_ok(), "{good} was refused");
+        }
+    }
+
+    /// The engine's working directory is the app's, not the compile directory,
+    /// so a staged file is only reachable because TEXINPUTS says so. Without
+    /// the compile directory on that path every annexure is "file not found".
+    #[tokio::test]
+    async fn a_staged_file_is_reachable_by_name_from_the_template() {
+        if !engine_available() {
+            return;
+        }
+
+        let attachment = Attachment::new(
+            "staged-note.tex",
+            b"Staged and found.\n".to_vec(),
+        )
+        .unwrap();
+
+        let source = "\\documentclass{article}\n\
+                      \\begin{document}\n\
+                      \\input{staged-note}\n\
+                      \\end{document}\n";
+
+        let pdf = run_engine_in("staged", source, None, 1, std::slice::from_ref(&attachment))
+            .await
+            .expect("a staged file must be reachable by name");
+        assert!(pdf.starts_with(b"%PDF-"));
     }
 }
 
@@ -959,7 +1111,7 @@ mod letterhead_tests {
     /// with the characters the firm's own details contain.
     #[tokio::test]
     async fn the_legal_notice_compiles_on_the_firm_letterhead() {
-        if !compile_tests::engine_available() {
+        if !engine_available() {
             return;
         }
 
@@ -1012,10 +1164,12 @@ mod letterhead_tests {
             "SIGNATORY_BLOCK".into(),
             Field::raw("Sree Lakshmi Menon\\\\\nD/6361/2020\\\\\nAdvocates"),
         );
-        fields.insert(
-            "ANNEXURES_BLOCK".into(),
-            Field::raw(format!("\\noindent {}", escape("Annexure-A(i): Screenshot for ₹7,000/-."))),
-        );
+        // No annexures: the two blocks a notice carries them in are empty, and
+        // the document must be complete without them. Attaching them is covered
+        // in services/annexures.rs, which compiles the same template with real
+        // files staged beside it.
+        fields.insert("ANNEXURES_BLOCK".into(), Field::raw(""));
+        fields.insert("ANNEXURE_PAGES".into(), Field::raw(""));
 
         let pdf = compile_latex("legal-notice", &fields)
             .await

@@ -11,14 +11,16 @@
 %
 % A real notice carries N numbered sections, N payment tranches and N annexures.
 % None of those counts is knowable when the template is written. Until the
-% registry supports repeating groups they arrive as three assembled blocks that
-% Keel builds — SECTIONS_BLOCK, ANNEXURES_BLOCK — using the macros defined in
-% _shared/persist-letterhead.tex. See PROGRESS.md for the design.
+% registry supports repeating groups they arrive as assembled blocks that Keel
+% builds — SECTIONS_BLOCK, ANNEXURES_BLOCK, ANNEXURE_PAGES — using the macros
+% defined in _shared/persist-letterhead.tex and _shared/persist-annexures.tex.
+% See PROGRESS.md for the design.
 
 \documentclass[12pt,a4paper]{article}
 
 \input{_shared/persist-base}
 \input{_shared/persist-letterhead}
+\input{_shared/persist-annexures}
 
 % ── Firm identity ────────────────────────────────────────────────────────────
 % Pulled from firm settings by Keel, so a change of office or number is made
@@ -117,12 +119,13 @@ in its entirety.
 \noindent
 {{SIGNATORY_BLOCK}}
 
-\vspace{6mm}
-
-\noindent\textbf{Enclosures / Annexures:}
-
-\vspace{3mm}
-
+% ── Annexures ────────────────────────────────────────────────────────────────
+% The list of what is attached, and then the attachments themselves. Both are
+% built by Keel from one list of documents, so they cannot contradict each
+% other. Both are empty when nothing is attached — a notice with no proof behind
+% it should not print an "Enclosures" heading with nothing under it.
 {{ANNEXURES_BLOCK}}
+
+{{ANNEXURE_PAGES}}
 
 \end{document}

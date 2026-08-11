@@ -216,6 +216,13 @@
       "kind": {
         "type": "computed"
       }
+    },
+    {
+      "key": "ANNEXURE_PAGES",
+      "label": "Annexure Pages",
+      "kind": {
+        "type": "computed"
+      }
     }
   ]
 }

@@ -11,8 +11,10 @@ use crate::rbac::{self, Permission};
 use crate::services::sync_engine::{self, EntityType, Op};
 use base64::engine::general_purpose::STANDARD as BASE64;
 use base64::Engine as _;
-use crate::services::latex::{self, CompileMode, Field};
+use crate::services::annexures::{self, Annexure};
+use crate::services::latex::{self, Attachment, CompileMode, Field};
 use crate::services::templates::{self, FieldError, FieldKind, TemplateManifest};
+use crate::storage::metadata;
 use crate::AppState;
 use std::collections::HashMap;
 
@@ -31,13 +33,35 @@ pub struct RenderDocumentInput {
     /// Where a Final render is filed. A draft needs none — it is never stored.
     #[serde(default)]
     pub matter_id: Option<String>,
+    /// Documents to attach as proof, in the order they should be marked.
+    #[serde(default)]
+    pub annexures: Vec<AnnexureInput>,
+}
+
+/// One file the attorney has attached, in the order they put it in.
+///
+/// No mark: Persist allocates those from this order. Letting the form carry a
+/// mark would let two annexures be called C, and would make reordering a manual
+/// renumbering exercise across the printed list and the bundle.
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AnnexureInput {
+    /// From `stage_annexure`.
+    pub staged_id: String,
+    /// What the attorney called it — "Receipt one". Printed in the list on the
+    /// document; never on the annexure page itself.
+    pub title: String,
 }
 
 /// A render either produced a document or has something to say about why not.
 ///
 /// Field errors and a compile failure are different things and Deck shows them
 /// differently: the first belongs against an input, the second is a banner.
-#[derive(Debug, serde::Serialize)]
+///
+/// `Default` is an empty result: no document, nothing wrong, nothing filed.
+/// Every construction site below fills in only what it is saying, so a field
+/// added here does not have to be added to five places that do not care.
+#[derive(Debug, Default, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RenderResult {
     /// The PDF, base64-encoded.
@@ -54,6 +78,24 @@ pub struct RenderResult {
     pub problem: Option<String>,
     /// Set on a Final render that was filed — the vault document id.
     pub document_id: Option<String>,
+    /// The marks actually allocated, in order, for the annexures that were
+    /// attached.
+    ///
+    /// Deck shows these against the attorney's list rather than working them
+    /// out itself. A second implementation of the marking rules in TypeScript
+    /// would eventually disagree with this one, and the attorney would be
+    /// looking at a mark the document does not carry.
+    #[serde(default)]
+    pub annexure_marks: Vec<AnnexureMark>,
+}
+
+/// One allocated mark, as it appears on the document.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AnnexureMark {
+    pub staged_id: String,
+    /// "A", or "A(ii)".
+    pub mark: String,
 }
 
 // ---------------------------------------------------------------------------
@@ -93,25 +135,52 @@ pub async fn render_document(
 
     let field_errors = templates::validate(&manifest, &input.values);
     if !field_errors.is_empty() {
+        return Ok(RenderResult { field_errors, ..RenderResult::default() });
+    }
+
+    // Annexures are loaded before the compile so a document that cannot be
+    // attached is a sentence the attorney can act on, not a LaTeX failure.
+    let (annexures, attachments) = match load_annexures(&state, &input.annexures).await {
+            Ok(loaded) => loaded,
+            Err(problem) => {
+                return Ok(RenderResult { problem: Some(problem), ..RenderResult::default() })
+            }
+        };
+
+    // A template that does not declare the annexure keys cannot carry
+    // annexures. Binding them anyway would fail the render on an unused key;
+    // dropping them silently would produce a notice missing its proof.
+    let takes_annexures = ANNEXURE_KEYS
+        .iter()
+        .all(|key| manifest.fields.iter().any(|spec| spec.key == *key));
+
+    if !annexures.is_empty() && !takes_annexures {
         return Ok(RenderResult {
-            pdf_base64: None,
-            field_errors,
-            problem: None,
-            document_id: None,
+            problem: Some(format!("{} documents cannot carry annexures.", manifest.name)),
+            ..RenderResult::default()
         });
     }
 
-    let fields = to_latex_fields(&manifest, &input.values);
+    // The list printed in the notice and the pages appended after it, from one
+    // source. `with_computed` overrides anything Deck sent under these keys.
+    let mut fields = to_latex_fields(&manifest, &input.values);
+    if takes_annexures {
+        fields = with_computed(
+            fields,
+            HashMap::from([
+                ("ANNEXURES_BLOCK".to_owned(), annexures::list_block(&annexures)),
+                ("ANNEXURE_PAGES".to_owned(), annexures::pages_block(&annexures)),
+            ]),
+        );
+    }
 
-    let pdf = match latex::compile(&input.template_id, &fields, input.mode).await {
+    let pdf = match latex::compile_with(&input.template_id, &fields, input.mode, &attachments).await
+    {
         Ok(pdf) => pdf,
         Err(e) => {
             // The LaTeX log is for us, not for an attorney (PRD §9.8).
             log::error!("render of '{}' failed: {e:#}", input.template_id);
             return Ok(RenderResult {
-                pdf_base64: None,
-                field_errors: Vec::new(),
-                document_id: None,
                 problem: Some(match input.mode {
                     CompileMode::Draft => {
                         "Preview temporarily unavailable — your content is saved.".to_owned()
@@ -122,6 +191,7 @@ pub async fn render_document(
                             .to_owned()
                     }
                 }),
+                ..RenderResult::default()
             });
         }
     };
@@ -136,9 +206,17 @@ pub async fn render_document(
 
     Ok(RenderResult {
         pdf_base64: Some(BASE64.encode(&pdf)),
-        field_errors: Vec::new(),
-        problem: None,
         document_id,
+        annexure_marks: input
+            .annexures
+            .iter()
+            .zip(&annexures)
+            .map(|(chosen, prepared)| AnnexureMark {
+                staged_id: chosen.staged_id.clone(),
+                mark: prepared.mark.clone(),
+            })
+            .collect(),
+        ..RenderResult::default()
     })
 }
 
@@ -197,6 +275,162 @@ async fn file_document(
     sync_engine::note_change(&pool, EntityType::Document, &doc_id, Op::Upsert).await;
 
     Ok(doc_id)
+}
+
+// ---------------------------------------------------------------------------
+// Annexures
+// ---------------------------------------------------------------------------
+
+/// The two computed keys a template must declare before it can carry annexures.
+const ANNEXURE_KEYS: [&str; 2] = ["ANNEXURES_BLOCK", "ANNEXURE_PAGES"];
+
+/// The largest single file that can be attached, and the largest total held.
+///
+/// Staged files sit in memory for the length of a drafting session so that the
+/// live preview does not re-read and re-clean them on every keystroke. Memory
+/// is the reason there is a limit at all: without one, a scanned bundle dropped
+/// in by mistake would sit in the app until it was restarted.
+const MAX_ANNEXURE_BYTES: usize = 25 * 1024 * 1024;
+const MAX_STAGED_BYTES: usize = 100 * 1024 * 1024;
+
+/// A file the attorney has attached, held until the document is generated.
+pub struct StagedAnnexure {
+    /// Cleaned bytes — metadata already stripped, type already checked.
+    pub bytes: Vec<u8>,
+    pub filename: String,
+}
+
+/// What Deck gets back after attaching a file.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StagedAnnexureInfo {
+    /// Referred to by later renders instead of resending the bytes.
+    pub id: String,
+    /// The file's own name, shown against the row.
+    pub filename: String,
+    pub size_bytes: usize,
+}
+
+/// Attach a file to the document being drafted.
+///
+/// `path` comes from the OS file dialog, so it is somewhere the attorney can
+/// already read. Keel opens it rather than Deck, because Deck does not read
+/// documents off the filesystem and because the bytes would otherwise cross the
+/// IPC bridge twice — once on attach and again on every preview.
+///
+/// The file is checked and cleaned here, at the moment it is chosen, so an
+/// unusable file is a sentence in front of the attorney straight away rather
+/// than a failed render ten minutes later.
+#[tauri::command]
+pub async fn stage_annexure(
+    path: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<StagedAnnexureInfo, String> {
+    rbac::require(&state, Permission::CreateDeadline).await?;
+
+    let path = std::path::PathBuf::from(path);
+    let filename = path
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "attachment".to_owned());
+
+    let bytes = tokio::fs::read(&path)
+        .await
+        .map_err(|e| {
+            log::error!("could not read annexure {}: {e}", path.display());
+            format!("\"{filename}\" could not be opened.")
+        })?;
+
+    if bytes.len() > MAX_ANNEXURE_BYTES {
+        return Err(format!(
+            "\"{filename}\" is larger than {} MB and cannot be attached.",
+            MAX_ANNEXURE_BYTES / (1024 * 1024)
+        ));
+    }
+
+    // The same three types the annexure assembler can lay out. Checked here so
+    // the refusal names the file the attorney just picked.
+    let format = metadata::detect_format(&bytes, "");
+    let mime = match format {
+        metadata::Format::Pdf => "application/pdf",
+        metadata::Format::Png => "image/png",
+        metadata::Format::Jpeg => "image/jpeg",
+        _ => {
+            return Err(format!(
+                "\"{filename}\" cannot be attached. Annexures must be PDF, PNG or \
+                 JPEG files."
+            ))
+        }
+    };
+
+    // An annexure leaves the firm inside a document served on the opposite
+    // party. The author, the revision history and the GPS coordinates of the
+    // phone that photographed a receipt go no further than this line.
+    let bytes = metadata::clean_metadata(&bytes, mime).map_err(|e| {
+        log::error!("annexure metadata strip failed for {filename}: {e:#}");
+        format!("\"{filename}\" could not be cleaned of hidden data, so it has not been attached.")
+    })?;
+
+    let mut staged = state.staged_annexures.lock().await;
+
+    let held: usize = staged.values().map(|a: &StagedAnnexure| a.bytes.len()).sum();
+    if held + bytes.len() > MAX_STAGED_BYTES {
+        return Err(
+            "There are too many attachments on this document. Remove one before \
+             attaching another."
+                .to_owned(),
+        );
+    }
+
+    let id = uuid::Uuid::new_v4().to_string();
+    let info = StagedAnnexureInfo {
+        id: id.clone(),
+        filename: filename.clone(),
+        size_bytes: bytes.len(),
+    };
+    staged.insert(id, StagedAnnexure { bytes, filename });
+
+    Ok(info)
+}
+
+/// Let go of a file the attorney removed from the list.
+#[tauri::command]
+pub async fn discard_annexure(id: String, state: tauri::State<'_, AppState>) -> Result<(), String> {
+    state.staged_annexures.lock().await.remove(&id);
+    Ok(())
+}
+
+/// Turn the attorney's list into marked, staged annexures.
+///
+/// Errors are written for an attorney and come back as `problem`, because each
+/// one is something they can act on.
+async fn load_annexures(
+    state: &tauri::State<'_, AppState>,
+    inputs: &[AnnexureInput],
+) -> Result<(Vec<Annexure>, Vec<Attachment>), String> {
+    if inputs.is_empty() {
+        return Ok((Vec::new(), Vec::new()));
+    }
+
+    let staged = state.staged_annexures.lock().await;
+    let mut sources = Vec::with_capacity(inputs.len());
+
+    for input in inputs {
+        let Some(file) = staged.get(&input.staged_id) else {
+            // The only way here is a restart, or a discard that raced a render.
+            return Err(
+                "One of the attachments is no longer available. Attach it again.".to_owned()
+            );
+        };
+
+        sources.push(annexures::Source {
+            bytes: file.bytes.clone(),
+            title: input.title.clone(),
+            filename: file.filename.clone(),
+        });
+    }
+
+    annexures::prepare(&sources).map_err(|e| e.to_string())
 }
 
 // ---------------------------------------------------------------------------

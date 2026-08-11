@@ -748,6 +748,48 @@ export interface RenderDocumentInput {
   mode: CompileMode;
   /** Required for a Final render — where the document is filed. */
   matterId?: string;
+  /** Documents to attach as proof, in the order they should be marked. */
+  annexures?: AnnexureInput[];
+}
+
+/**
+ * An attached file, as sent to a render.
+ *
+ * Deliberately no mark: Keel allocates those from this order, so reordering the
+ * list is the only thing needed to renumber a bundle.
+ */
+export interface AnnexureInput {
+  /** From `stageAnnexure`. */
+  stagedId: string;
+  /** What the attorney called it — "Receipt one". */
+  title: string;
+}
+
+/**
+ * A row in the form, which may not have a file yet.
+ *
+ * The form lets an annexure be named before it is attached; only rows with a
+ * `stagedId` are sent to a render.
+ */
+export interface DraftAnnexure {
+  title: string;
+  stagedId: string | null;
+  /** The chosen file's own name, for the row. */
+  filename: string | null;
+}
+
+/** A file held by Keel until the document is generated. */
+export interface StagedAnnexureInfo {
+  id: string;
+  filename: string;
+  sizeBytes: number;
+}
+
+/** A mark Keel actually put on the document. Display only. */
+export interface AnnexureMark {
+  stagedId: string;
+  /** "A", "B", "C". */
+  mark: string;
 }
 
 export interface RenderResult {
@@ -756,4 +798,7 @@ export interface RenderResult {
   fieldErrors: FieldError[];
   problem: string | null;
   documentId: string | null;
+  /** What each attached document was marked as, in order. Empty until a render
+   *  has succeeded — Deck shows Keel's marks rather than guessing at them. */
+  annexureMarks: AnnexureMark[];
 }

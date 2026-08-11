@@ -18,15 +18,22 @@
 \usepackage{ragged2e}     % justifying
 
 % ── Partner block ────────────────────────────────────────────────────────────
-% One partner's line in the header: name, designation, phone, email.
+% One partner's four lines: name, designation, phone, email, right-aligned.
+%
+% The leading is set once for the block rather than with \\[1pt] between lines.
+% Measured off the firm's own notice: four lines at roughly 10pt apart. Adding
+% per-line spacing on top of the font's own leading made the block half again
+% as tall and pushed the mark out of line with it.
+%
 %   \partnerblock{name}{designation}{phone}{email}
 \newcommand{\partnerblock}[4]{%
   \begin{minipage}[t]{\linewidth}
     \raggedleft
-    {\sffamily\bfseries\fontsize{7.5}{9}\selectfont #1}\\[1pt]
-    {\sffamily\fontsize{7}{8.5}\selectfont #2}\\[1pt]
-    {\sffamily\fontsize{7}{8.5}\selectfont #3}\\[1pt]
-    {\sffamily\fontsize{7}{8.5}\selectfont #4}
+    \sffamily\fontsize{7.6}{10}\selectfont
+    \textbf{#1}\\
+    #2\\
+    #3\\
+    #4
   \end{minipage}%
 }
 
@@ -59,17 +66,27 @@
   % The page must make room for the band the header now occupies. geometry is
   % re-run rather than set in persist-base, because a template using the base
   % without the letterhead should keep the tighter margins.
-  \newgeometry{top=46mm, bottom=32mm, left=22mm, right=22mm,
-               headheight=108pt, headsep=14pt, footskip=56pt}%
+  % `includehead`/`includefoot` make `top` and `bottom` the distance from the
+  % paper edge to the *bands*, not to the body. Without them the header is
+  % pinned to the paper edge and the letterhead sits higher than the firm's own.
+  \newgeometry{top=15mm, bottom=12mm, left=22mm, right=22mm,
+               includehead, includefoot,
+               headheight=108pt, headsep=10mm, footskip=56pt}%
   %
+  % The mark sits centred against the two partner blocks, not level with the
+  % first line of them. Both bands are set as [c]-aligned minipages of the same
+  % height so the alignment holds however long a partner's email address is.
   \fancyhead[L]{%
-    \raisebox{-0.45\height}{\includegraphics[width=52mm]{\firmlogo}}%
+    \begin{minipage}[c][\headheight][c]{54mm}
+      \includegraphics[width=50mm]{\firmlogo}
+    \end{minipage}%
   }%
   \fancyhead[R]{%
-    \begin{minipage}[t]{62mm}
-      \partnerblock{\partneronename}{\partneronerole}{\partneronephone}{\partneroneemail}\\[2pt]
-      % The rule separates the two partners without a heavy divider.
-      {\color{textSecondary}\rule{\linewidth}{0.4pt}}\\[3pt]
+    \begin{minipage}[c][\headheight][c]{62mm}
+      \partnerblock{\partneronename}{\partneronerole}{\partneronephone}{\partneroneemail}\\[5pt]
+      % A short rule, right-aligned under the first partner — as on the firm's
+      % own notices. A full-width one reads as a section divider.
+      \hfill{\color{textPrimary}\rule{46mm}{0.4pt}}\\[6pt]
       \partnerblock{\partnertwoname}{\partnertworole}{\partnertwophone}{\partnertwoemail}
     \end{minipage}%
   }%

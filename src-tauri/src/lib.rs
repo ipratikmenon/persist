@@ -46,6 +46,14 @@ pub struct AppState {
     /// login_attempts: per-email failure counters for rate limiting.
     /// In memory by design — resets on restart (specs/auth-rbac.md §Security Rules).
     pub login_attempts: Arc<Mutex<HashMap<String, commands::auth::AttemptState>>>,
+    /// staged_annexures: files attached to a document being drafted, held from
+    /// the moment they are chosen until the document is generated.
+    ///
+    /// In memory by design. They are working material, not filed documents —
+    /// what gets retained is the generated document, which contains them. The
+    /// live preview re-renders as the attorney types, so re-reading and
+    /// re-cleaning each file every time would be the slowest thing in the app.
+    pub staged_annexures: Arc<Mutex<HashMap<String, commands::drafting::StagedAnnexure>>>,
 }
 
 // ---------------------------------------------------------------------------
@@ -144,6 +152,7 @@ pub fn run() {
                 session:   Arc::new(Mutex::new(None)),
                 keychain:  Arc::new(Keychain::new(&app_data_dir)),
                 login_attempts: Arc::new(Mutex::new(HashMap::new())),
+                staged_annexures: Arc::new(Mutex::new(HashMap::new())),
             });
 
             // Start the deadline watcher background service.
@@ -248,6 +257,8 @@ pub fn run() {
             commands::drafting::list_templates,
             commands::drafting::get_template,
             commands::drafting::render_document,
+            commands::drafting::stage_annexure,
+            commands::drafting::discard_annexure,
             commands::sync::invite_portal_user,
             commands::sync::list_portal_users,
             commands::sync::revoke_portal_user,

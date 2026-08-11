@@ -1,0 +1,106 @@
+% Persistas & Partners — annexures.
+%
+% A notice that demands money is only as good as the proof behind it. The firm
+% attaches that proof — receipts, bank statements, WhatsApp screenshots — to the
+% notice itself, so the served bundle is one document rather than a letter and a
+% pile of loose paper that can be said never to have arrived.
+%
+% \input{_shared/persist-base} first; this uses its colours and fonts.
+%
+% MARKING
+%
+% Every annexure page carries its mark in the top-right corner. That marking is
+% not the attorney's job: Keel allocates the marks in order and builds both the
+% list printed in the notice and the pages appended after it from the same
+% source, so the list cannot say Annexure C while the pages stop at B.
+%
+% The mark is drawn with eso-pic's starred \AddToShipoutPictureFG*, which is
+% "this page only" and expands its argument where it is called, rather than with
+% a fancyhdr page style — which is the obvious way, and puts the mark in the
+% wrong place. \applyletterhead gives the document a 108pt head band so the
+% firm's mark and both partners fit; an annexure page inheriting that geometry
+% has its header pushed roughly 40% of the way down the paper, landing on top of
+% the first line of the receipt it is supposed to be marking. Compiled and
+% measured both ways: fancyhdr put the mark at y=137pt with the receipt's own
+% text at y=144pt. A shipout picture is positioned against the paper, not
+% against a text area the letterhead controls, so it sits 13mm from the edge
+% whatever the body geometry is.
+%
+% `the_mark_sits_at_the_top_of_the_page_clear_of_the_content` in
+% services/annexures.rs is the test that fails if this is changed back.
+%
+% The annexure pages themselves are \thispagestyle{empty}: the firm's letterhead
+% belongs on the firm's words, not overprinted on a third party's receipt.
+
+\usepackage{pdfpages}
+\usepackage{eso-pic}
+
+% ── The mark ─────────────────────────────────────────────────────────────────
+% Boxed, top-right, 13mm down from the paper edge — clear of the content of a
+% scanned A4 page, which almost always has a margin of its own.
+%
+%   \annexurestamp{A(i)}
+\newcommand{\annexurestamp}[1]{%
+  \AddToShipoutPictureFG*{%
+    \AtPageUpperLeft{%
+      \raisebox{-13mm}[0pt][0pt]{%
+        \makebox[\paperwidth][r]{%
+          {\sffamily\bfseries\fontsize{9}{11}\selectfont\color{textPrimary}%
+           \setlength{\fboxsep}{4pt}%
+           \setlength{\fboxrule}{0.4pt}%
+           \fcolorbox{textPrimary}{white}{\strut ANNEXURE #1}}%
+          \hspace{14mm}}}}%
+  }%
+}
+
+% ── A PDF annexure ───────────────────────────────────────────────────────────
+% Every page of the source, scaled to leave room for the mark. The source keeps
+% its own page numbering; renumbering someone else's document would misrepresent
+% it.
+%
+%   \annexurepdf{A}{annexure-01.pdf}
+\newcommand{\annexurepdf}[2]{%
+  \includepdf[pages=-, scale=0.86, offset=0 -8mm,
+              pagecommand={\annexurestamp{#1}\thispagestyle{empty}}]{#2}%
+}
+
+% ── An image annexure ────────────────────────────────────────────────────────
+% A screenshot or a photographed receipt, filling its page. Nothing is printed
+% alongside it — not a caption, not a heading. An annexure page carries the
+% document and its mark and nothing else, so what the recipient sees is the
+% evidence as it was, with only the firm's marking added.
+%
+%   \annexureimage{B}{annexure-02.png}
+\newcommand{\annexureimage}[2]{%
+  \clearpage
+  \annexurestamp{#1}%
+  \thispagestyle{empty}%
+  \null\vfill
+  \begin{center}
+    \includegraphics[width=\textwidth, height=0.86\textheight, keepaspectratio]{#2}
+  \end{center}
+  \vfill\null
+  \clearpage
+}
+
+% ── The list printed in the notice ───────────────────────────────────────────
+% Set on the last page of the notice body, above the annexures themselves.
+% \annexurelistheading is emitted by Keel only when there is at least one
+% annexure — a notice with nothing attached should not print an empty heading.
+% The \par is load-bearing: without it the first \annexureentry continues the
+% heading's paragraph and prints on the same line as "Enclosures / Annexures:".
+\newcommand{\annexurelistheading}{%
+  \vspace{8mm}
+  \noindent\textbf{Enclosures / Annexures:}\par
+  \vspace{3mm}
+}
+
+%   \annexureentry{A}{Receipt dated 14 July 2026}
+\newcommand{\annexureentry}[2]{%
+  \noindent
+  \makebox[32mm][l]{\textbf{Annexure-#1}}%
+  \begin{minipage}[t]{\dimexpr\linewidth-32mm\relax}
+    #2
+  \end{minipage}\par
+  \vspace{1.5mm}
+}
