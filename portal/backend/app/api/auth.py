@@ -39,7 +39,15 @@ def _set_refresh_cookie(response: Response, token: str, max_age_days: int) -> No
         httponly=True,   # unreachable from JavaScript, so XSS cannot lift it
         secure=True,     # HTTPS only
         samesite="lax",  # not sent on cross-site POSTs
-        path="/auth",    # only the routes that need it ever see it
+        # Site-wide, not "/auth".
+        #
+        # The edge namespaces the API — the browser calls /api/auth/refresh —
+        # and this app cannot know what prefix it was mounted under, so a
+        # narrower path silently stops the cookie being sent and every page
+        # reload looks like a logout. Path is not a security boundary in any
+        # case: any page on the origin can trigger a request to /auth/*.
+        # `httponly` is what protects this value.
+        path="/",
     )
 
 
@@ -123,7 +131,7 @@ async def refresh_token(
     if rotated is None:
         # Also the path a detected reuse takes. The family is already revoked;
         # the client sees only that they must log in again.
-        response.delete_cookie(refresh.COOKIE_NAME, path="/auth")
+        response.delete_cookie(refresh.COOKIE_NAME, path="/")
         raise _REFUSED
 
     token, expires_in = issue_access_token(rotated.portal_user_id, rotated.client_id)
@@ -143,4 +151,4 @@ async def logout(
 
     # Cleared whether or not the token was known, so a stale cookie cannot
     # survive a logout.
-    response.delete_cookie(refresh.COOKIE_NAME, path="/auth")
+    response.delete_cookie(refresh.COOKIE_NAME, path="/")

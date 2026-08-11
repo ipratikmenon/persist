@@ -1,0 +1,27 @@
+/* Reset and page defaults. Everything else comes from the design tokens, so
+   this file stays deliberately small — a stylesheet growing rules is a
+   stylesheet competing with the tokens. */
+*, *::before, *::after { box-sizing: border-box; }
+
+html, body, #root { height: 100%; }
+
+body {
+  margin: 0;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  /* Matches colors.bgPrimary. Set here so there is no flash of white before
+     React mounts. */
+  background: #F9F7F4;
+  color: #2C2C2A;
+}
+
+/* The card links in Matters and Invoices wrap block content; without this the
+   underline from the anchor reaches through. */
+a { color: inherit; }
+
+button { font: inherit; }
+
+:focus-visible {
+  outline: 2px solid #4A6580;
+  outline-offset: 2px;
+}

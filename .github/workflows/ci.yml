@@ -83,6 +83,27 @@ jobs:
       - name: Build
         run: pnpm build
 
+  portal-frontend:
+    name: Portal frontend (React)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Install
+        working-directory: portal/frontend
+        run: pnpm install --frozen-lockfile
+      # The build also proves the design-token alias resolves — the portal
+      # imports Deck's tokens rather than keeping a copy, so a token file moved
+      # or renamed in Deck breaks this job rather than drifting silently.
+      - name: Build
+        working-directory: portal/frontend
+        run: pnpm build
+
   portal:
     name: Portal API (FastAPI)
     runs-on: ubuntu-latest

@@ -13,10 +13,28 @@ from datetime import date, datetime
 from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict, Field
+from pydantic.alias_generators import to_camel
 
 
 class Base(BaseModel):
-    model_config = ConfigDict(extra="forbid", from_attributes=False)
+    """camelCase on the wire, snake_case in Python.
+
+    Every other surface in Persist is camelCase over the wire — Keel's IPC
+    structs carry `#[serde(rename_all = "camelCase")]` and Deck's types match.
+    The portal should not be the one place a client-side developer has to
+    remember it is different.
+
+    `populate_by_name` keeps the Python-side field names usable when these are
+    constructed in code, which is how every route builds them.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+        from_attributes=False,
+        alias_generator=to_camel,
+        populate_by_name=True,
+        serialize_by_alias=True,
+    )
 
 
 # ---------------------------------------------------------------------------

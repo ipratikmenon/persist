@@ -56,7 +56,7 @@ async def test_an_invited_but_not_active_user_cannot_log_in(client):
     )
     response = await client.post("/auth/request-otp", json={"email": EMAIL_A})
     assert response.status_code == 202
-    assert response.json()["debug_code"] is None
+    assert response.json()["debugCode"] is None
 
 
 # ---------------------------------------------------------------------------
@@ -66,7 +66,7 @@ async def test_an_invited_but_not_active_user_cannot_log_in(client):
 
 async def test_the_plaintext_code_is_never_stored(client):
     requested = await client.post("/auth/request-otp", json={"email": EMAIL_A})
-    code = requested.json()["debug_code"]
+    code = requested.json()["debugCode"]
 
     rows = await _as_admin("SELECT code_hash FROM inbound.otp_challenges")
     assert len(rows) == 1
@@ -82,7 +82,7 @@ async def test_a_wrong_code_is_refused(client):
 
 async def test_a_code_works_once(client):
     requested = await client.post("/auth/request-otp", json={"email": EMAIL_A})
-    code = requested.json()["debug_code"]
+    code = requested.json()["debugCode"]
 
     first = await client.post("/auth/verify-otp", json={"email": EMAIL_A, "code": code})
     assert first.status_code == 200
@@ -93,7 +93,7 @@ async def test_a_code_works_once(client):
 
 async def test_attempts_are_capped_and_then_the_challenge_is_dead(client):
     requested = await client.post("/auth/request-otp", json={"email": EMAIL_A})
-    code = requested.json()["debug_code"]
+    code = requested.json()["debugCode"]
 
     for _ in range(5):
         await client.post("/auth/verify-otp", json={"email": EMAIL_A, "code": "999999"})
@@ -105,8 +105,8 @@ async def test_attempts_are_capped_and_then_the_challenge_is_dead(client):
 
 
 async def test_requesting_a_new_code_kills_the_old_one(client):
-    first = (await client.post("/auth/request-otp", json={"email": EMAIL_A})).json()["debug_code"]
-    second = (await client.post("/auth/request-otp", json={"email": EMAIL_A})).json()["debug_code"]
+    first = (await client.post("/auth/request-otp", json={"email": EMAIL_A})).json()["debugCode"]
+    second = (await client.post("/auth/request-otp", json={"email": EMAIL_A})).json()["debugCode"]
     assert first != second
 
     stale = await client.post("/auth/verify-otp", json={"email": EMAIL_A, "code": first})
@@ -118,7 +118,7 @@ async def test_requesting_a_new_code_kills_the_old_one(client):
 
 async def test_an_expired_code_is_refused(client):
     requested = await client.post("/auth/request-otp", json={"email": EMAIL_A})
-    code = requested.json()["debug_code"]
+    code = requested.json()["debugCode"]
 
     await _as_admin("UPDATE inbound.otp_challenges SET expires_at = now() - interval '1 minute'")
 
@@ -213,7 +213,7 @@ async def test_revocation_takes_effect_on_the_next_request(client, new_status):
 
 async def test_a_revoked_user_cannot_refresh_their_way_back_in(client):
     login_response = await client.post("/auth/request-otp", json={"email": EMAIL_A})
-    code = login_response.json()["debug_code"]
+    code = login_response.json()["debugCode"]
     verified = await client.post("/auth/verify-otp", json={"email": EMAIL_A, "code": code})
     assert verified.status_code == 200
 
@@ -232,7 +232,7 @@ async def test_a_revoked_user_cannot_refresh_their_way_back_in(client):
 
 
 async def test_refresh_rotates_and_the_old_token_dies(client):
-    code = (await client.post("/auth/request-otp", json={"email": EMAIL_A})).json()["debug_code"]
+    code = (await client.post("/auth/request-otp", json={"email": EMAIL_A})).json()["debugCode"]
     await client.post("/auth/verify-otp", json={"email": EMAIL_A, "code": code})
 
     original = client.cookies.get("persist_refresh")
@@ -246,7 +246,7 @@ async def test_refresh_rotates_and_the_old_token_dies(client):
 
 async def test_reusing_a_spent_refresh_token_kills_the_whole_family(client):
     """Replay and theft are indistinguishable, so both end the session."""
-    code = (await client.post("/auth/request-otp", json={"email": EMAIL_A})).json()["debug_code"]
+    code = (await client.post("/auth/request-otp", json={"email": EMAIL_A})).json()["debugCode"]
     await client.post("/auth/verify-otp", json={"email": EMAIL_A, "code": code})
 
     stolen = client.cookies.get("persist_refresh")
@@ -266,7 +266,7 @@ async def test_reusing_a_spent_refresh_token_kills_the_whole_family(client):
 
 
 async def test_logout_revokes_the_refresh_token(client):
-    code = (await client.post("/auth/request-otp", json={"email": EMAIL_A})).json()["debug_code"]
+    code = (await client.post("/auth/request-otp", json={"email": EMAIL_A})).json()["debugCode"]
     await client.post("/auth/verify-otp", json={"email": EMAIL_A, "code": code})
     token = client.cookies.get("persist_refresh")
 

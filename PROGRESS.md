@@ -12,9 +12,9 @@
 
 **Phase:** 2 — Billing & Client Portal
 **Week:** 3
-**Active module:** M9 prerequisites done — template registry, shared preamble, compile modes, CI. M9 itself is now buildable without Rust changes per template.
-**Last session completed:** S20 — 2026-08-10 — M9 prerequisites: template manifests + declarative validation, shared preamble, draft/final modes, engine warm-up, drafting commands, second real template, and the repo's first CI workflow. cargo test 203/203.
-**Last updated:** 2026-08-10
+**Active module:** M5 COMPLETE end to end — a client can now log in and read their own matters, documents and invoices in a browser.
+**Last session completed:** S21 — 2026-08-11 — M5 Step 4: the portal frontend. Four tabs, OTP login, driven against the live API. portal 48/48, three builds green.
+**Last updated:** 2026-08-11
 
 ---
 
@@ -22,58 +22,51 @@
 
 > Fill this section at the start of a session. Clear it when done.
 
-**Nothing in progress.** S20 built the substrate M9 sits on. On
-`claude/new-session-dbqe5o`.
+**Nothing in progress.** S21 built the portal frontend, which closes M5: firm
+data reaches the mirror (3b), the API serves it safely (3c), and a client can
+now read it (4). On `claude/new-session-dbqe5o`.
 
-The problem it solves: generating a document meant writing Rust.
-`generate_invoice_pdf` hardcodes twenty-one field names, and the PRD lists
-**nineteen** templates for the initial library. Nineteen bespoke command
-functions is not a plan, and it puts the admin's job — update a template when a
-registry changes its format — behind a Rust release.
+  ✅ `portal/frontend/` — React + Vite, four tabs per PORTAL-RULES.md: Matters
+     (list + detail), Documents (download + upload), Invoices (list + detail +
+     raise a query), Account.
+  ✅ **OTP login**, two steps, no password anywhere. The screen advances to the
+     code step whether or not the address is known, because the backend answers
+     identically — a UI that said "no such account" would undo the
+     anti-enumeration defence.
+  ✅ **Design tokens are aliased to Deck's file, not copied.** A client sees the
+     portal and the firm's invoices side by side; two drifting palettes would
+     show. The CI build fails if the alias stops resolving.
+  ✅ **Access token in memory only** — never localStorage. The refresh token is
+     an httpOnly cookie, so a page reload restores the session rather than
+     looking like a logout.
+  ✅ **Money stays a string** end to end, grouped Indian-style, matching the
+     invoice PDF exactly.
+  ✅ **Backend now speaks camelCase**, like every other surface in Persist. It
+     was the one place a client-side developer had to remember otherwise.
+  ✅ Driven end to end with Playwright against the live API and a real
+     PostgreSQL mirror — full OTP login, all four tabs, and a reload.
 
-  ✅ **Template registry.** A template is now `<id>.tex` + `<id>.json`. The
-     manifest declares every field: key, label, kind, validation, conditional
-     visibility, and where Deck should autofill from. Adding a template is
-     adding two files.
-  ✅ **Declarative validation**, not regex — "must be exactly 7 digits", not
-     "must match `^[0-9]{7}$`". Covers the PRD's stated needs including the
-     cross-field rule (a hearing cannot precede its filing) and conditional
-     fields (prior-use grounds reveal a first-use date).
-  ✅ **A drift test over the whole shipped library.** Every `{{KEY}}` must be
-     declared and every declared field used. It caught two real bugs on its
-     first run — see below.
-  ✅ **Shared preamble** (`_shared/persist-base.tex`). Nineteen templates each
-     carrying the font, colour and geometry setup would be nineteen places to
-     change the letterhead and nineteen chances to miss one.
-  ✅ **Draft/Final compile modes.** Draft is one pass for the live preview;
-     Final is two, for anything signed or sent.
-  ✅ **Engine warm-up at startup.** Cold XeLaTeX is ~14s building its font
-     cache, ~1.4s warm. Unavoidable once per machine, but not while an attorney
-     watches a blank preview.
-  ✅ **Drafting commands** — `list_templates`, `get_template`, `render_document`.
-     A compile failure reaches the attorney as a sentence, never a LaTeX log.
-  ✅ **A second real template** — Reply to Examination Report (TM Registry),
-     with conditional grounds. Proof the machinery generalises past invoices.
-  ✅ **The repo's first CI workflow.** Keel with TeX Live, Deck, the portal
-     against real PostgreSQL, the RLS gate, and the sync server.
+**Two real bugs, both found only by running it:**
 
-**Two bugs the new drift test found in my own code:**
+  - **`/matters` is both a React route and an API endpoint.** A same-origin
+     deployment could not tell a page load from an API call, so a browser
+     navigation got raw JSON. The API is now namespaced under `/api`, which the
+     edge strips.
+  - **The refresh cookie was scoped `path=/auth`,** so once the API moved to
+     `/api/auth/...` the browser stopped sending it and every reload logged the
+     client out. Now `path=/` — the app cannot know what prefix the edge mounted
+     it under, and `httponly` is what protects the value anyway.
 
-  - `placeholders_in` mis-parsed `\textbf{{{KEY}}}` — a LaTeX brace wrapping a
-    placeholder. It anchored on the first `{{`, read the key as `{KEY`, and
-    found nothing. So `render` could not tell such a placeholder was unfilled,
-    and it would have printed into a client's PDF.
-  - The drift check had no way to express a field that is collected but not
-    printed — the grounds selector drives a computed paragraph. Added
-    `inputOnly` rather than loosening the check.
+⚠️ **Still not built** (all M5 Step 3d): object storage, virus scanning, OTP
+email delivery, notification read receipts. Downloads and uploads work against
+the API; the bytes have nowhere to live yet.
 
-⚠️ **Sidecar bundling (B03) is still open.** `tauri.conf.json` must ship xelatex
-and Noto. It cannot be verified from here — it needs a real macOS/Windows build.
+⚠️ **Sidecar bundling (B03)** — needs a real macOS/Windows build machine.
 
 ⚠️ **Still awaiting your review:** the M5 spec.
 
-Next: **M9 itself** (the Smart Form Compiler UI in Deck), **M5 Step 4** (portal
-frontend), or **M5 Step 3d** (object storage + email).
+Next: **M9** (Smart Form Compiler UI — the backend is ready), or **M5 Step 3d**
+(object storage + email, which makes documents actually flow).
 
 ---
 
@@ -442,6 +435,12 @@ bets: M35, M36, M38.
 | Aug 2026 | Projection tests assert on serialised JSON, not struct fields | Checking fields only proves what we already know. Building a row with `INTERNAL_LEAK` in every unnamed column and asserting it is absent from the wire bytes proves what actually leaves |
 | Aug 2026 | A Delete in the outbox supersedes a pending Upsert | Otherwise an upsert queued before an un-share resurrects the row in the mirror. Re-queuing the same op collapses, so five edits before one sync are one push |
 | Aug 2026 | Enabling sync without a server URL is refused | A firm that believes sync is on and is wrong is worse off than one that sees an error |
+| Aug 2026 | The portal API is namespaced under `/api` | `/matters` and `/invoices` are both React routes and API endpoints. Sharing a path space means the edge cannot tell a page load from an API call — found by running it, when a browser navigation returned raw JSON |
+| Aug 2026 | The refresh cookie is scoped `path=/`, not `/auth` | The app cannot know what prefix the edge mounted it under. A narrower path silently stops the cookie being sent, and every reload looks like a logout. `httponly` is what protects the value; path is not a security boundary |
+| Aug 2026 | The access token lives in memory, never localStorage | Anything that can run a script on the page could read it there, and a stolen token is a client's entire matter file. In memory it dies with the tab |
+| Aug 2026 | The portal aliases Deck's design tokens rather than copying them | A client sees the portal and the firm's invoices side by side. Two copies kept in step by hand would drift, and the drift would be visible |
+| Aug 2026 | Money stays a string from PostgreSQL to the screen | Parsing a decimal to a float to format it is how a bill drifts by a paisa |
+| Aug 2026 | The portal API speaks camelCase on the wire | Keel's IPC structs and Deck's types already do. The portal should not be the one surface where a developer has to remember it is different |
 | Aug 2026 | A template is two files, not a Rust function | The PRD lists nineteen templates. Bespoke code per template puts the admin's job — update a template when a registry changes format — behind a release |
 | Aug 2026 | Validation is declarative, not regex | An attorney reads "must be exactly 7 digits", not "must match `^[0-9]{7}$`" |
 | Aug 2026 | Manifest strictness beats convenient JSON | serde cannot combine `flatten` with `deny_unknown_fields`. Nesting the kind object costs a little verbosity and keeps a typo'd `required` from silently producing an unvalidated filing |
@@ -504,6 +503,7 @@ HETZNER_SYNC_URL=       # Sync server URL (Phase 2 M5)
 | Apr 17 2026 | S07: Phase 2 M4 Billing — spec written, migration 0006_billing.sql (5 tables), queries/billing.rs (5 tests), commands/billing.rs (13 cmds), lib.rs billing commands registered, tauri.ts billing wrappers, BillingHome/TimeTracker/InvoiceList/FirmSettingsPanel. Also: new spec files placed in specs/ (module-02-docketing, auth-rbac, hpas-integration, module-03-documents updated), PROGRESS.md reconciled | specs/*.md, 0006_billing.sql, queries/billing.rs, commands/billing.rs, pages/Billing/*.tsx | cargo test: 30/30, pnpm build: PASS (467 modules, 457kb) |
 | Apr 19 2026 | S08: Phase 2 M4 Billing UI complete — InvoiceDetail.tsx (back/actions/line items/GST panel/payment modal), InvoiceComposer.tsx (client→matter→entries→fixed-fee→GST type→live totals→create), InvoiceList wired (row click→detail, New Invoice→composer), latex.rs real impl (finds pdflatex, tempdir compile, 3 tests), invoice.tex GST-compliant template, client lookup added to generate_invoice_pdf, tempfile moved to [dependencies] | pages/Billing/InvoiceDetail.tsx, InvoiceComposer.tsx, InvoiceList.tsx, services/latex.rs, storage/templates/invoice.tex, commands/billing.rs, Cargo.toml | cargo test: 33/33, pnpm build: PASS (469 modules, 482kb) |
 | Jul 19 2026 | S09: Expansion roadmap (planning only, no code) — researched adalat.ai + visiocyber.ai; wrote specs/expansion-roadmap.md defining Track A Courtroom Intelligence (M25 transcription, M26 hearings/cause lists, M27 doc digitization, M28 research/summarization, M29 WhatsApp chatbot) and Track B Startup Legal SaaS (M30 Startup Legal OS, M31 DP Audit Engine → Phase 2.5, M32 Compliance & AI Governance, M33 Assessments); added Phases 2.5/8/9 to TASKS.md; 4 architecture decisions logged | specs/expansion-roadmap.md (new), TASKS.md, PROGRESS.md, SESSION-LOG/2026-07-19-S09-expansion-roadmap.md | No code changed — tests unaffected (33/33 as of S08) |
+| Aug 11 2026 | S21: M5 Step 4 — the portal frontend. `portal/frontend/`: React + Vite, four tabs (Matters, Documents, Invoices, Account), two-step OTP login, `lib/api.ts` as the single place the portal talks to the backend. Access token in memory only — never localStorage — with the refresh token an httpOnly cookie, so a reload restores the session. Design tokens aliased to Deck's file rather than copied, so the two cannot drift. Money kept as a string end to end and grouped Indian-style. Backend switched to camelCase on the wire to match every other surface. Driven end to end with Playwright against the live API and a real PostgreSQL mirror. **Two bugs found only by running it:** `/matters` was both a React route and an API endpoint, so a same-origin deployment served raw JSON to a browser navigation (API now namespaced under `/api`); and the refresh cookie was scoped `path=/auth`, so after that change every reload logged the client out | portal/frontend/** (new), portal/backend/app/{models.py,api/auth.py}, portal/backend/tests/*, portal/PORTAL-RULES.md, .github/workflows/ci.yml | portal: 48/48, Deck build PASS, portal build PASS |
 | Aug 10 2026 | S20: M9 prerequisites. **Template registry** — `services/templates.rs`: manifests declare every field (kind, validation, conditional visibility, autofill source), so adding a template is two files rather than a Rust release; the PRD lists nineteen. **Declarative validation** over regex, for error messages an attorney can act on; covers cross-field date rules and conditional fields. **Drift test over the shipped library** — caught `placeholders_in` mis-parsing `\textbf{{{KEY}}}` (so an unfilled placeholder in that position would have printed into a client PDF) and the missing `inputOnly` concept. **Shared preamble** `_shared/persist-base.tex` via TEXINPUTS. **Draft/Final compile modes** and **engine warm-up** (cold XeLaTeX ~14s vs ~1.4s warm) for live preview. **Drafting commands** `list_templates`/`get_template`/`render_document`, with LaTeX errors never reaching an attorney. **Second real template** — TM Reply to Examination Report. **First CI workflow**, with `PERSIST_REQUIRE_LATEX` turning a silent engine skip into a failure | src-tauri/src/services/{templates.rs (new),latex.rs}, src-tauri/src/commands/drafting.rs (new), src-tauri/storage/templates/{_shared/persist-base.tex,invoice.json,tm-examination-reply.{tex,json}}, src-tauri/src/lib.rs, KEEL-RULES.md, .github/workflows/ci.yml (new) | cargo test: 203/203 (was 174), pnpm build: PASS |
 | Aug 10 2026 | S19: LaTeX/template pipeline repaired. Invoice PDF generation had never worked — three independent fatal faults (`&` in the seeded firm name, ₹ under pdfLaTeX, and a `documents.matter_id` FK violation that orphaned a vault file), none catchable by the string-only tests that existed. Engine switched to XeLaTeX + fontspec + Noto Serif (also unlocks Devanagari for Hindi filings). `compile_latex` now takes `HashMap<String, Field>` where `Field::text` escapes and `Field::raw` does not — a bare string no longer compiles, which is what made "escaped one field out of twenty-one" possible. Old `latex_escape` deleted: it mapped `\\` to a LaTeX line break and silently split citations across lines. Unfilled placeholders now fail instead of printing `{{CLIENT_ADDRESS}}` to a client. Added two passes, 60s timeout, `-no-shell-escape`, job-name sanitising, LaTeX-error extraction, and Indian digit grouping (`₹1,55,760.00`). New compilation tests run the real engine against the real template; both original faults reproduced as negative controls | src-tauri/src/services/latex.rs (rewritten), src-tauri/src/commands/billing.rs, src-tauri/storage/templates/invoice.tex, src-tauri/KEEL-RULES.md, CLAUDE.md | cargo test: 174/174 (was 170), incl. 4 real-compilation tests |
 | Aug 9 2026 | S18b: M5 Step 3c — the portal API. `portal/backend/` FastAPI: OTP login (6-digit, bcrypt-hashed, 10-min expiry, 5 attempts then dead, new code kills the old), RS256 JWT, rotating refresh tokens with family-wide revocation on reuse, and every read route in spec §13. Four independent locks on privilege — RLS via `SET LOCAL`, three roles across three connections, a `client_id` filter in every query, and Pydantic models with `extra="forbid"` — each tested with the others disabled. New roles/tables: `0003_portal_auth.sql` (the login path could not run under either existing portal role), `0004_refresh_tokens.sql`. RLS gate extended 10 → 12 assertions and its exemption list derived from grants rather than table names. **Bug found by its own test:** the 401 in verify-otp was raised inside the transaction, rolling back the attempt counter and leaving the OTP brute-forceable | portal/backend/{pyproject.toml,README.md,app/**,tests/**}, server/migrations/{0003_portal_auth,0004_refresh_tokens}.sql, server/tests/rls_test.sql, server/SCHEMA.md, .gitignore | portal: 48/48 vs live PostgreSQL, RLS gate: 12/12 (negative-control verified) |

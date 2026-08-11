@@ -33,8 +33,8 @@ async def test_document_listings_carry_no_object_key_or_hash(client):
     body = (await client.get("/documents", headers=bearer(token))).text
 
     assert "vault/a/doc-a-1" not in body, "the object key reached the client"
-    assert "object_key" not in body
-    assert "sha256" not in body
+    for spelling in ("object_key", "objectKey", "sha256"):
+        assert spelling not in body, f"{spelling} reached the client: {body}"
 
 
 async def test_invoice_listings_carry_no_pdf_object_key(client):
@@ -45,7 +45,8 @@ async def test_invoice_listings_carry_no_pdf_object_key(client):
 
     for body in (listing, detail):
         assert "vault/a/inv-a-1.pdf" not in body
-        assert "pdf_object_key" not in body
+        for spelling in ("pdf_object_key", "pdfObjectKey"):
+            assert spelling not in body, f"{spelling} reached the client: {body}"
 
 
 async def test_a_download_redirects_to_a_signed_url_that_expires(client):
@@ -110,9 +111,9 @@ async def test_money_survives_as_exact_decimals(client):
     invoice = (await client.get("/invoices/INV-A-1", headers=bearer(token))).json()
 
     assert invoice["subtotal"] == "70000.01"
-    assert invoice["total_with_tax"] == "82600.01"
-    assert invoice["amount_paid"] == "10000.00"
-    assert invoice["amount_due"] == "72600.01"
+    assert invoice["totalWithTax"] == "82600.01"
+    assert invoice["amountPaid"] == "10000.00"
+    assert invoice["amountDue"] == "72600.01"
 
 
 async def test_invoice_detail_carries_no_line_items(client):
@@ -121,9 +122,8 @@ async def test_invoice_detail_carries_no_line_items(client):
     token = await login(client, EMAIL_A)
     invoice = (await client.get("/invoices/INV-A-1", headers=bearer(token))).json()
 
-    assert "line_items" not in invoice
-    assert "hours" not in str(invoice)
-    assert "rate" not in str(invoice)
+    for spelling in ("lineItems", "line_items", "hours", "rate"):
+        assert spelling not in str(invoice), f"{spelling} reached the client: {invoice}"
 
 
 async def test_payments_appear_on_the_invoice(client):
@@ -144,7 +144,7 @@ async def test_matter_detail_assembles_its_own_children(client):
     matter = (await client.get("/matters/M-A-1", headers=bearer(token))).json()
 
     assert matter["title"] == "PETALVEDA"
-    assert matter["responsible_attorney"] == "Sree Lakshmi Menon"
+    assert matter["responsibleAttorney"] == "Sree Lakshmi Menon"
     assert [d["id"] for d in matter["deadlines"]] == ["D-A-1"]
     assert [d["id"] for d in matter["documents"]] == ["DOC-A-1"]
 
@@ -190,7 +190,7 @@ async def test_an_upload_is_queued_not_ingested(client):
     assert response.status_code == 202
     body = response.json()
     # Untrusted until the desktop says otherwise (spec §15.12).
-    assert body["scan_status"] == "Pending"
+    assert body["scanStatus"] == "Pending"
     assert body["status"] == "Pending"
 
 

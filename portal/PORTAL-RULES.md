@@ -88,6 +88,41 @@ portal/frontend/
 Data fetching uses standard `fetch()` to the FastAPI backend.
 No `invoke()`, no Tauri imports.
 
+### The API is namespaced under `/api` — always
+
+`/matters` and `/invoices` are both React routes *and* API endpoints. Serving
+both from `/` on one origin means the edge cannot tell a page load from an API
+call, and a browser navigation gets handed raw JSON. So every call the portal
+makes goes to `/api/...`, and the edge (Cloudflare in production, Vite in dev)
+strips the prefix before FastAPI sees it.
+
+### Tokens
+
+The access token lives in a module variable in `lib/api.ts` and nowhere else.
+Never `localStorage`, never `sessionStorage`: anything that can run a script on
+the page could read it there, and a stolen token is a client's entire matter
+file. In memory, it dies with the tab.
+
+The refresh token is an httpOnly cookie the backend sets — unreadable from
+JavaScript. It is scoped `path=/`, not `/auth`, because the app cannot know what
+prefix the edge mounted it under; a narrower path silently stops the cookie
+being sent and every page reload looks like a logout.
+
+On a cold load there is no access token, so the app asks for one from the cookie
+before deciding whether to show the login screen.
+
+### Design tokens come from Deck, not a copy
+
+`src/design-system/tokens.ts` re-exports `src/design-system/tokens.ts` from the
+desktop app via a Vite alias. A client sees this portal and the firm's invoices
+side by side; two drifting copies of the palette would show.
+
+### Money is a string, end to end
+
+The API returns decimals as strings and the portal keeps them strings all the
+way to the screen. Parsing to a float to format it is how a bill drifts by a
+paisa. Grouping is Indian — three digits then twos — matching the invoice PDF.
+
 ---
 
 ## Deployment

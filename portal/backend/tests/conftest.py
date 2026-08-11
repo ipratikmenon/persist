@@ -195,12 +195,12 @@ async def login(client, email: str) -> str:
     """Full OTP round trip. Returns an access token."""
     requested = await client.post("/auth/request-otp", json={"email": email})
     assert requested.status_code == 202
-    code = requested.json()["debug_code"]
+    code = requested.json()["debugCode"]
     assert code, "the test settings must expose the code"
 
     verified = await client.post("/auth/verify-otp", json={"email": email, "code": code})
     assert verified.status_code == 200, verified.text
-    return verified.json()["access_token"]
+    return verified.json()["accessToken"]
 
 
 def bearer(token: str) -> dict[str, str]:
