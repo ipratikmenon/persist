@@ -36,7 +36,12 @@
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "copyright": "\u00a9 2026 Persistas & Partners. All rights reserved.",
+    "publisher": "Persistas & Partners",
+    "category": "Business",
+    "shortDescription": "Legal practice management for Persistas & Partners",
+    "longDescription": "Persist is the practice management platform of Persistas & Partners, Advocates and IP Attorneys, New Delhi. Matters, docketing, documents, billing and the client portal, in one local-first application."
   },
   "plugins": {
     "shell": {

@@ -13,6 +13,7 @@ const NAV_ITEMS = [
   { path: '/dockets/pipeline', label: 'Pipeline'  },
   { path: '/documents',        label: 'Documents' },
   { path: '/billing',          label: 'Billing'   },
+  { path: '/drafting',         label: 'Drafting'  },
   { path: '/portal',           label: 'Portal'    },
 ] as const;
 

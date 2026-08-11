@@ -47,6 +47,9 @@ import type {
   UpdateMatterInput,
   UpdateTimeEntryInput,
   UploadDocumentInput,
+  TemplateManifest,
+  RenderDocumentInput,
+  RenderResult,
 } from './ipc-types';
 
 // LoginInput not in spec yet — defined locally until auth-rbac.md spec lands
@@ -220,6 +223,18 @@ export const keel = {
     setServer: (url: string) => invoke<SyncStatus>('set_sync_server', { url }),
     /** Stored in the OS keychain, never in SQLite. Empty string clears it. */
     setToken: (token: string) => invoke<SyncStatus>('set_sync_token', { token }),
+  },
+
+  // ---- Drafting (M9.8 Smart Form Compiler) ------------------------------
+  drafting: {
+    /** Every template in the library, for the document-type picker. */
+    listTemplates: () => invoke<TemplateManifest[]>('list_templates'),
+    /** The schema Deck builds the form from. */
+    getTemplate: (id: string) => invoke<TemplateManifest>('get_template', { id }),
+    /** Validates, then renders. Draft is one pass for the preview; Final is two
+     *  and, given a matterId, files the result into the vault. */
+    render: (input: RenderDocumentInput) =>
+      invoke<RenderResult>('render_document', { input }),
   },
 
   portalUsers: {

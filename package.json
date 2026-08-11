@@ -24,7 +24,9 @@
     "zustand": "^5"
   },
   "pnpm": {
-    "onlyBuiltDependencies": ["esbuild"]
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2",
@@ -38,5 +40,8 @@
     "typescript": "^5",
     "vite": "^6",
     "vitest": "^3"
-  }
+  },
+  "license": "UNLICENSED",
+  "author": "Persistas & Partners",
+  "description": "Persist \u2014 legal practice management for Persistas & Partners"
 }

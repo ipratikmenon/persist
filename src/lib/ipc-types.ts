@@ -680,3 +680,80 @@ export interface InvitePortalUserInput {
   email: string;
   phone?: string;
 }
+
+// ---------------------------------------------------------------------------
+// Drafting — Phase 4 Module 9.8 (Smart Form Compiler)
+//
+// These mirror src-tauri/src/services/templates.rs. The form is built from the
+// manifest, so adding a template needs no change here.
+// ---------------------------------------------------------------------------
+
+export type FieldKind =
+  | { type: 'text';      maxLength?: number | null }
+  | { type: 'multiline'; maxLength?: number | null; maxWords?: number | null }
+  | { type: 'date';      notBefore?: string | null }
+  | { type: 'digits';    length: number }
+  | { type: 'number';    min?: number | null; max?: number | null }
+  | { type: 'select';    options: SelectOption[] }
+  | { type: 'checkbox' }
+  /** Assembled by Keel. Never shown in the form. */
+  | { type: 'computed' };
+
+export interface SelectOption {
+  value: string;
+  label: string;
+}
+
+export interface ShownWhen {
+  field: string;
+  equals: string[];
+}
+
+export interface FieldSpec {
+  key: string;
+  label: string;
+  kind: FieldKind;
+  required: boolean;
+  help?: string | null;
+  /** Where to pre-fill from, e.g. "matter.responsibleAttorney". */
+  autofill?: string | null;
+  shownWhen?: ShownWhen | null;
+  /** Collected but not printed — it drives a computed field. */
+  inputOnly: boolean;
+}
+
+export interface TemplateManifest {
+  id: string;
+  name: string;
+  category: string;
+  version: number;
+  revised: string;
+  approvedBy?: string | null;
+  authority?: string | null;
+  description?: string | null;
+  fields: FieldSpec[];
+}
+
+export interface FieldError {
+  key: string;
+  label: string;
+  message: string;
+}
+
+export type CompileMode = 'draft' | 'final';
+
+export interface RenderDocumentInput {
+  templateId: string;
+  values: Record<string, string>;
+  mode: CompileMode;
+  /** Required for a Final render — where the document is filed. */
+  matterId?: string;
+}
+
+export interface RenderResult {
+  /** base64, not a byte array — see the note on RenderResult in drafting.rs. */
+  pdfBase64: string | null;
+  fieldErrors: FieldError[];
+  problem: string | null;
+  documentId: string | null;
+}

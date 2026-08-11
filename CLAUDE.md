@@ -32,6 +32,12 @@ A session without a log file is an incomplete session.
 ## Project Identity
 
 **Persist** is a legal practice management platform for Persistas & Partners, Delhi.
+
+The application is named **Persist**. It is proprietary software and the
+exclusive property of Persistas & Partners — see `COPYRIGHT.md`. Not
+open-source; no licence is granted. The document templates in
+`src-tauri/storage/templates/` are the firm's professional work product, not
+configuration.
 It is a law firm tool — not a generic SaaS product. Every decision should reflect that:
 client privilege matters, reliability > features, Indian IP law context, two attorneys
 (Sree Lakshmi Menon and Kajal Thakur) are the primary users.

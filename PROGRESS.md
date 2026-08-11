@@ -12,8 +12,8 @@
 
 **Phase:** 2 — Billing & Client Portal
 **Week:** 3
-**Active module:** M5 COMPLETE end to end — a client can now log in and read their own matters, documents and invoices in a browser.
-**Last session completed:** S21 — 2026-08-11 — M5 Step 4: the portal frontend. Four tabs, OTP login, driven against the live API. portal 48/48, three builds green.
+**Active module:** M9.8 Smart Form Compiler built — an attorney can draft a filing from a form and never see LaTeX. Ownership recorded (app name Persist, property of Persistas & Partners).
+**Last session completed:** S22 — 2026-08-11 — M9.8: split-screen Smart Form Compiler, generated entirely from template manifests. cargo test 203/203, Deck build PASS, 16 screenshots.
 **Last updated:** 2026-08-11
 
 ---
@@ -22,51 +22,50 @@
 
 > Fill this section at the start of a session. Clear it when done.
 
-**Nothing in progress.** S21 built the portal frontend, which closes M5: firm
-data reaches the mirror (3b), the API serves it safely (3c), and a client can
-now read it (4). On `claude/new-session-dbqe5o`.
+**Nothing in progress.** S22 built M9.8, the Smart Form Compiler. On
+`claude/new-session-dbqe5o`.
 
-  ✅ `portal/frontend/` — React + Vite, four tabs per PORTAL-RULES.md: Matters
-     (list + detail), Documents (download + upload), Invoices (list + detail +
-     raise a query), Account.
-  ✅ **OTP login**, two steps, no password anywhere. The screen advances to the
-     code step whether or not the address is known, because the backend answers
-     identically — a UI that said "no such account" would undo the
-     anti-enumeration defence.
-  ✅ **Design tokens are aliased to Deck's file, not copied.** A client sees the
-     portal and the firm's invoices side by side; two drifting palettes would
-     show. The CI build fails if the alias stops resolving.
-  ✅ **Access token in memory only** — never localStorage. The refresh token is
-     an httpOnly cookie, so a page reload restores the session rather than
-     looking like a logout.
-  ✅ **Money stays a string** end to end, grouped Indian-style, matching the
-     invoice PDF exactly.
-  ✅ **Backend now speaks camelCase**, like every other surface in Persist. It
-     was the one place a client-side developer had to remember otherwise.
-  ✅ Driven end to end with Playwright against the live API and a real
-     PostgreSQL mirror — full OTP login, all four tabs, and a reload.
+### Ownership
 
-**Two real bugs, both found only by running it:**
+  ✅ `COPYRIGHT.md` — **Persist is proprietary software and the exclusive
+     property of Persistas & Partners.** Not open-source; no licence granted.
+     The templates are called out specifically: they encode the firm's own
+     precedents and are professional work product, not configuration.
+  ✅ Recorded where it shows: Tauri bundle copyright and publisher (installer
+     dialogs, macOS Get Info, Windows file properties), `UNLICENSED` +
+     `publish = false` on both Cargo manifests, `private` + author on both
+     package.json files, and the root CLAUDE.md.
 
-  - **`/matters` is both a React route and an API endpoint.** A same-origin
-     deployment could not tell a page load from an API call, so a browser
-     navigation got raw JSON. The API is now namespaced under `/api`, which the
-     edge strips.
-  - **The refresh cookie was scoped `path=/auth`,** so once the API moved to
-     `/api/auth/...` the browser stopped sending it and every reload logged the
-     client out. Now `path=/` — the app cannot know what prefix the edge mounted
-     it under, and `httponly` is what protects the value anyway.
+### M9.8 — Smart Form Compiler
 
-⚠️ **Still not built** (all M5 Step 3d): object storage, virus scanning, OTP
-email delivery, notification read receipts. Downloads and uploads work against
-the API; the bytes have nowhere to live yet.
+  ✅ `pages/Drafting/DraftingHome.tsx` — templates grouped by practice area,
+     each showing version and revision date so an associate can see which
+     version they are about to use. An unapproved template says so.
+  ✅ `pages/Drafting/SmartForm.tsx` — split screen: guided form left, live PDF
+     right. The attorney never sees LaTeX and never sees a compile error.
+  ✅ `components/drafting/FormField.tsx` — **nothing in Deck knows what a trade
+     mark is.** The form is generated from the manifest: labels, help, kinds,
+     conditional visibility, word counters. Adding a template needs no Deck
+     change, which was the point of the S20 registry.
+  ✅ Live preview debounced at 600ms — a compile is ~1.4s warm, so rendering on
+     every keystroke would queue work faster than it drains. Stale renders are
+     discarded by sequence number, and blob URLs are revoked rather than leaked
+     one per keystroke.
+  ✅ **Generate PDF files into the vault** and records it against the matter,
+     with the template version in the filename.
+  ✅ `render_document` returns base64, not `Vec<u8>` — Tauri serialises a byte
+     vector as a JSON array of numbers, so a 250 KB preview would cross the
+     bridge as most of a megabyte on every render.
 
-⚠️ **Sidecar bundling (B03)** — needs a real macOS/Windows build machine.
+⚠️ **Two templates in the library.** The machinery is done; the other seventeen
+in the PRD are content and want the firm's actual precedents.
 
-⚠️ **Still awaiting your review:** the M5 spec.
+⚠️ **Not built:** clause libraries (pre-approved paragraphs by checkbox),
+autofill from the matter record — the manifests declare `autofill` sources but
+nothing reads them yet. Both are M9.8 finishing work.
 
-Next: **M9** (Smart Form Compiler UI — the backend is ready), or **M5 Step 3d**
-(object storage + email, which makes documents actually flow).
+⚠️ **Still open:** M5 Step 3d (object storage, email), sidecar bundling (B03),
+M9.2/9.3/9.6 (proofreading, comparison, precedent library).
 
 ---
 
@@ -503,6 +502,7 @@ HETZNER_SYNC_URL=       # Sync server URL (Phase 2 M5)
 | Apr 17 2026 | S07: Phase 2 M4 Billing — spec written, migration 0006_billing.sql (5 tables), queries/billing.rs (5 tests), commands/billing.rs (13 cmds), lib.rs billing commands registered, tauri.ts billing wrappers, BillingHome/TimeTracker/InvoiceList/FirmSettingsPanel. Also: new spec files placed in specs/ (module-02-docketing, auth-rbac, hpas-integration, module-03-documents updated), PROGRESS.md reconciled | specs/*.md, 0006_billing.sql, queries/billing.rs, commands/billing.rs, pages/Billing/*.tsx | cargo test: 30/30, pnpm build: PASS (467 modules, 457kb) |
 | Apr 19 2026 | S08: Phase 2 M4 Billing UI complete — InvoiceDetail.tsx (back/actions/line items/GST panel/payment modal), InvoiceComposer.tsx (client→matter→entries→fixed-fee→GST type→live totals→create), InvoiceList wired (row click→detail, New Invoice→composer), latex.rs real impl (finds pdflatex, tempdir compile, 3 tests), invoice.tex GST-compliant template, client lookup added to generate_invoice_pdf, tempfile moved to [dependencies] | pages/Billing/InvoiceDetail.tsx, InvoiceComposer.tsx, InvoiceList.tsx, services/latex.rs, storage/templates/invoice.tex, commands/billing.rs, Cargo.toml | cargo test: 33/33, pnpm build: PASS (469 modules, 482kb) |
 | Jul 19 2026 | S09: Expansion roadmap (planning only, no code) — researched adalat.ai + visiocyber.ai; wrote specs/expansion-roadmap.md defining Track A Courtroom Intelligence (M25 transcription, M26 hearings/cause lists, M27 doc digitization, M28 research/summarization, M29 WhatsApp chatbot) and Track B Startup Legal SaaS (M30 Startup Legal OS, M31 DP Audit Engine → Phase 2.5, M32 Compliance & AI Governance, M33 Assessments); added Phases 2.5/8/9 to TASKS.md; 4 architecture decisions logged | specs/expansion-roadmap.md (new), TASKS.md, PROGRESS.md, SESSION-LOG/2026-07-19-S09-expansion-roadmap.md | No code changed — tests unaffected (33/33 as of S08) |
+| Aug 11 2026 | S22: Ownership + M9.8. **Ownership:** `COPYRIGHT.md` records Persist as proprietary software and the exclusive property of Persistas & Partners, with the templates called out as professional work product; carried into the Tauri bundle metadata, both Cargo manifests, both package.json files and CLAUDE.md. **M9.8 Smart Form Compiler:** `pages/Drafting/{DraftingHome,SmartForm}.tsx` and `components/drafting/FormField.tsx` — split-screen guided form and live PDF preview, generated entirely from the template manifests so nothing in Deck knows what a trade mark is. Preview debounced at 600ms against a ~1.4s compile, stale renders discarded by sequence, blob URLs revoked rather than leaked per keystroke. Generate files the PDF into the vault against the matter with the template version in the filename. `render_document` switched to base64 — a byte vector crosses Tauri as a JSON number array, ~4x | src/pages/Drafting/** (new), src/components/drafting/FormField.tsx (new), src/lib/{ipc-types,tauri}.ts, src/App.tsx, src/components/shell/AppShell.tsx, src-tauri/src/commands/drafting.rs, COPYRIGHT.md (new), tauri.conf.json, Cargo.toml x2, package.json x2, CLAUDE.md, screenshots/* | cargo test: 203/203, Deck build PASS, 16 screenshots |
 | Aug 11 2026 | S21: M5 Step 4 — the portal frontend. `portal/frontend/`: React + Vite, four tabs (Matters, Documents, Invoices, Account), two-step OTP login, `lib/api.ts` as the single place the portal talks to the backend. Access token in memory only — never localStorage — with the refresh token an httpOnly cookie, so a reload restores the session. Design tokens aliased to Deck's file rather than copied, so the two cannot drift. Money kept as a string end to end and grouped Indian-style. Backend switched to camelCase on the wire to match every other surface. Driven end to end with Playwright against the live API and a real PostgreSQL mirror. **Two bugs found only by running it:** `/matters` was both a React route and an API endpoint, so a same-origin deployment served raw JSON to a browser navigation (API now namespaced under `/api`); and the refresh cookie was scoped `path=/auth`, so after that change every reload logged the client out | portal/frontend/** (new), portal/backend/app/{models.py,api/auth.py}, portal/backend/tests/*, portal/PORTAL-RULES.md, .github/workflows/ci.yml | portal: 48/48, Deck build PASS, portal build PASS |
 | Aug 10 2026 | S20: M9 prerequisites. **Template registry** — `services/templates.rs`: manifests declare every field (kind, validation, conditional visibility, autofill source), so adding a template is two files rather than a Rust release; the PRD lists nineteen. **Declarative validation** over regex, for error messages an attorney can act on; covers cross-field date rules and conditional fields. **Drift test over the shipped library** — caught `placeholders_in` mis-parsing `\textbf{{{KEY}}}` (so an unfilled placeholder in that position would have printed into a client PDF) and the missing `inputOnly` concept. **Shared preamble** `_shared/persist-base.tex` via TEXINPUTS. **Draft/Final compile modes** and **engine warm-up** (cold XeLaTeX ~14s vs ~1.4s warm) for live preview. **Drafting commands** `list_templates`/`get_template`/`render_document`, with LaTeX errors never reaching an attorney. **Second real template** — TM Reply to Examination Report. **First CI workflow**, with `PERSIST_REQUIRE_LATEX` turning a silent engine skip into a failure | src-tauri/src/services/{templates.rs (new),latex.rs}, src-tauri/src/commands/drafting.rs (new), src-tauri/storage/templates/{_shared/persist-base.tex,invoice.json,tm-examination-reply.{tex,json}}, src-tauri/src/lib.rs, KEEL-RULES.md, .github/workflows/ci.yml (new) | cargo test: 203/203 (was 174), pnpm build: PASS |
 | Aug 10 2026 | S19: LaTeX/template pipeline repaired. Invoice PDF generation had never worked — three independent fatal faults (`&` in the seeded firm name, ₹ under pdfLaTeX, and a `documents.matter_id` FK violation that orphaned a vault file), none catchable by the string-only tests that existed. Engine switched to XeLaTeX + fontspec + Noto Serif (also unlocks Devanagari for Hindi filings). `compile_latex` now takes `HashMap<String, Field>` where `Field::text` escapes and `Field::raw` does not — a bare string no longer compiles, which is what made "escaped one field out of twenty-one" possible. Old `latex_escape` deleted: it mapped `\\` to a LaTeX line break and silently split citations across lines. Unfilled placeholders now fail instead of printing `{{CLIENT_ADDRESS}}` to a client. Added two passes, 60s timeout, `-no-shell-escape`, job-name sanitising, LaTeX-error extraction, and Indian digit grouping (`₹1,55,760.00`). New compilation tests run the real engine against the real template; both original faults reproduced as negative controls | src-tauri/src/services/latex.rs (rewritten), src-tauri/src/commands/billing.rs, src-tauri/storage/templates/invoice.tex, src-tauri/KEEL-RULES.md, CLAUDE.md | cargo test: 174/174 (was 170), incl. 4 real-compilation tests |

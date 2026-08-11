@@ -10,6 +10,8 @@ import RenewalDashboard from '@/pages/Dockets/RenewalDashboard';
 import DocumentList from '@/pages/Documents/DocumentList';
 import BillingHome from '@/pages/Billing/BillingHome';
 import PortalHome from '@/pages/Portal/PortalHome';
+import { DraftingHome } from '@/pages/Drafting/DraftingHome';
+import { SmartForm } from '@/pages/Drafting/SmartForm';
 import LoginScreen from '@/pages/Auth/LoginScreen';
 import { useAuthStore } from '@/stores/auth';
 import { keel } from '@/lib/tauri';
@@ -170,6 +172,10 @@ export default function App() {
 
                 {/* Phase 2 M5 — Client Portal */}
                 <Route path="/portal" element={<PortalHome />} />
+
+                {/* Phase 4 M9.8 — Smart Form Compiler */}
+                <Route path="/drafting" element={<DraftingHome />} />
+                <Route path="/drafting/:templateId" element={<SmartForm />} />
 
                 <Route path="*" element={<Navigate to="/matters" replace />} />
               </Routes>

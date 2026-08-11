@@ -3,6 +3,8 @@ name = "persist"
 version = "0.1.0"
 description = "Persist Desktop — Persistas & Partners legal practice management"
 authors = ["Persistas & Partners"]
+license = "UNLICENSED"
+publish = false
 edition = "2021"
 
 [lib]

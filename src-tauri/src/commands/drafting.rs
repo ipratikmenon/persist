@@ -8,6 +8,9 @@
 // developer can find it (PRD §9.8, "compile errors are handled silently").
 
 use crate::rbac::{self, Permission};
+use crate::services::sync_engine::{self, EntityType, Op};
+use base64::engine::general_purpose::STANDARD as BASE64;
+use base64::Engine as _;
 use crate::services::latex::{self, CompileMode, Field};
 use crate::services::templates::{self, FieldError, FieldKind, TemplateManifest};
 use crate::AppState;
@@ -25,6 +28,9 @@ pub struct RenderDocumentInput {
     pub values: HashMap<String, String>,
     /// Draft for the live preview, Final for anything that leaves the firm.
     pub mode: CompileMode,
+    /// Where a Final render is filed. A draft needs none — it is never stored.
+    #[serde(default)]
+    pub matter_id: Option<String>,
 }
 
 /// A render either produced a document or has something to say about why not.
@@ -34,13 +40,20 @@ pub struct RenderDocumentInput {
 #[derive(Debug, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RenderResult {
-    /// PDF bytes, when there are any.
-    pub pdf: Option<Vec<u8>>,
+    /// The PDF, base64-encoded.
+    ///
+    /// Not `Vec<u8>`: Tauri serialises a byte vector as a JSON array of
+    /// numbers, roughly three to four bytes of JSON per byte of PDF. The live
+    /// preview re-renders as the attorney types, so a 250 KB document would
+    /// cross the bridge as most of a megabyte each time. Base64 is 1.33x.
+    pub pdf_base64: Option<String>,
     #[serde(default)]
     pub field_errors: Vec<FieldError>,
     /// Set when the document could not be produced for a reason that is not a
     /// field. Written for an attorney.
     pub problem: Option<String>,
+    /// Set on a Final render that was filed — the vault document id.
+    pub document_id: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -80,32 +93,110 @@ pub async fn render_document(
 
     let field_errors = templates::validate(&manifest, &input.values);
     if !field_errors.is_empty() {
-        return Ok(RenderResult { pdf: None, field_errors, problem: None });
+        return Ok(RenderResult {
+            pdf_base64: None,
+            field_errors,
+            problem: None,
+            document_id: None,
+        });
     }
 
     let fields = to_latex_fields(&manifest, &input.values);
 
-    match latex::compile(&input.template_id, &fields, input.mode).await {
-        Ok(pdf) => Ok(RenderResult { pdf: Some(pdf), field_errors: Vec::new(), problem: None }),
+    let pdf = match latex::compile(&input.template_id, &fields, input.mode).await {
+        Ok(pdf) => pdf,
         Err(e) => {
-            // The LaTeX log is for us, not for an attorney.
+            // The LaTeX log is for us, not for an attorney (PRD §9.8).
             log::error!("render of '{}' failed: {e:#}", input.template_id);
-            Ok(RenderResult {
-                pdf: None,
+            return Ok(RenderResult {
+                pdf_base64: None,
                 field_errors: Vec::new(),
+                document_id: None,
                 problem: Some(match input.mode {
                     CompileMode::Draft => {
                         "Preview temporarily unavailable — your content is saved.".to_owned()
                     }
                     CompileMode::Final => {
-                        "This document could not be generated. The firm's administrator \
-                         has been sent the details."
+                        "This document could not be generated. The details have been \
+                         written to the log for the firm's administrator."
                             .to_owned()
                     }
                 }),
-            })
+            });
         }
-    }
+    };
+
+    // A draft is never stored. It exists for the length of one preview.
+    let document_id = match (input.mode, input.matter_id.as_deref()) {
+        (CompileMode::Final, Some(matter_id)) => {
+            Some(file_document(&state, matter_id, &manifest, &pdf).await?)
+        }
+        _ => None,
+    };
+
+    Ok(RenderResult {
+        pdf_base64: Some(BASE64.encode(&pdf)),
+        field_errors: Vec::new(),
+        problem: None,
+        document_id,
+    })
+}
+
+/// Encrypt a finished document into the vault and record it against the matter.
+///
+/// Same path an uploaded document takes — a generated filing is a document like
+/// any other, and it must be in the vault rather than on disk beside it.
+async fn file_document(
+    state: &tauri::State<'_, AppState>,
+    matter_id: &str,
+    manifest: &TemplateManifest,
+    pdf: &[u8],
+) -> Result<String, String> {
+    let session = rbac::require(state, Permission::CreateDeadline).await?;
+    let pool = { state.db.lock().await.clone() };
+
+    let doc_id = uuid::Uuid::new_v4().to_string();
+
+    crate::storage::vault::encrypt_to_vault(
+        &state.vault_dir,
+        &state.vault_key,
+        pdf,
+        matter_id,
+        &doc_id,
+    )
+    .map_err(|e| format!("Could not store the document securely: {e}"))?;
+
+    let vault_path = state
+        .vault_dir
+        .join(matter_id)
+        .join(format!("{doc_id}.enc"))
+        .to_string_lossy()
+        .to_string();
+
+    // The version is on the filename so an associate can see which template
+    // produced a document without opening the record (PRD §9.8).
+    let filename = format!("{}-v{}-{}.pdf", manifest.id, manifest.version, &doc_id[..8]);
+
+    sqlx::query(
+        "INSERT INTO documents
+         (id, matter_id, filename, category, mime_type, file_size_bytes, vault_path, uploaded_by,
+          description)
+         VALUES (?, ?, ?, 'Filing', 'application/pdf', ?, ?, ?, ?)",
+    )
+    .bind(&doc_id)
+    .bind(matter_id)
+    .bind(&filename)
+    .bind(pdf.len() as i64)
+    .bind(&vault_path)
+    .bind(&session.user_id)
+    .bind(format!("{} (template v{})", manifest.name, manifest.version))
+    .execute(&pool)
+    .await
+    .map_err(|e| e.to_string())?;
+
+    sync_engine::note_change(&pool, EntityType::Document, &doc_id, Op::Upsert).await;
+
+    Ok(doc_id)
 }
 
 // ---------------------------------------------------------------------------

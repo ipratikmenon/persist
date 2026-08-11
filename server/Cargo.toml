@@ -3,6 +3,9 @@ name = "persist-sync-server"
 version = "0.1.0"
 edition = "2021"
 description = "Persist sync server — relays the desktop's public projection into the PostgreSQL mirror"
+authors = ["Persistas & Partners"]
+license = "UNLICENSED"
+publish = false
 
 [dependencies]
 axum = "0.7"

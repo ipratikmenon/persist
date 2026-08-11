@@ -112,6 +112,39 @@ await shot('13-portal-sync-live', '/portal?sync=on', {
   },
 });
 
+// ---- Drafting: the Smart Form Compiler (M9.8) ----
+await shot('14-drafting-picker', '/drafting');
+
+// Empty form: nothing is required of the attorney until they start, and the
+// preview pane says what it is waiting for.
+await shot('15-smart-form-empty', '/drafting/tm-examination-reply?matter=P%26P-2026-TM-0042');
+
+// Filled: the live preview appears once the required fields are in.
+await shot('16-smart-form-filled', '/drafting/tm-examination-reply?matter=P%26P-2026-TM-0042', {
+  setup: async (p) => {
+    const fill = async (id, value) => {
+      const el = p.locator(`#${id}`);
+      if (await el.count()) await el.fill(value);
+    };
+    await fill('ATTORNEY_NAME', 'Sree Lakshmi Menon');
+    await fill('REPLY_DATE', '2026-08-11');
+    await p.selectOption('#REGISTRY_OFFICE', 'Delhi');
+    await fill('TM_NUMBER', '5544121');
+    await fill('TM_MARK', 'PETALVEDA');
+    await fill('TM_CLASS', '3, 5');
+    await fill('APPLICANT_NAME', 'Tata & Sons Pvt Ltd');
+    await fill('EXAM_REPORT_DATE', '2026-06-15');
+    await fill('SUBMISSIONS', 'The objection under s.11(1) is respectfully denied. The cited mark covers goods in class 30 and is 100% distinct in its trade channels.');
+    await fill('GROUNDS_TEXT', 'Prior use since 2019; no likelihood of confusion.');
+    // Choosing prior use reveals the first-use date — the conditional field.
+    await p.selectOption('#GROUNDS', 'PriorUse');
+    await p.waitForTimeout(300);
+    await fill('FIRST_USE_DATE', '2019-04-01');
+    // Past the debounce, so the preview has rendered.
+    await p.waitForTimeout(1800);
+  },
+});
+
 await browser.close();
 server.close();
 console.log(`\nWrote ${fs.readdirSync(OUT).length} screenshots to screenshots/out/`);
