@@ -12,8 +12,8 @@
 % own content.
 
 % ── Layout ───────────────────────────────────────────────────────────────────
-% Paper, typeface, size, spacing, page numbering and which pages carry the
-% letterhead are per-document choices, not template content. The drafting
+% Paper, margins, typeface, size, spacing, page numbering and which pages carry
+% the letterhead are per-document choices, not template content. The drafting
 % command compiles them to persist-layout.tex and stages it beside the template;
 % everything below reads it. A compile that does not supply one — a test, an
 % invoice generated straight from billing — gets these defaults and looks
@@ -27,6 +27,16 @@
 \providecommand{\persistleading}{14.4pt}
 \providecommand{\persiststretch}{1.00}
 \providecommand{\persistbodystyle}{}
+\providecommand{\persistmargintop}{20mm}
+\providecommand{\persistmarginbottom}{20mm}
+\providecommand{\persistmarginleft}{22mm}
+\providecommand{\persistmarginright}{22mm}
+% The same margins as the letterhead bands need them. Measured off the firm's
+% own notice: the mark hangs 5mm above where a plain page's body would start and
+% the registered-office footer 8mm below where it would end.
+% persist-letterhead.tex re-runs \geometry with these.
+\providecommand{\persistheadmargintop}{15mm}
+\providecommand{\persistheadmarginbottom}{12mm}
 \providecommand{\persistpagenumbers}{pageoftotal}
 \providecommand{\persistpageoffset}{0}
 \providecommand{\persistletterheadmode}{all}
@@ -39,7 +49,8 @@
 % whatever the \documentclass said. Values are expanded; keys are not.
 \usepackage{geometry}
 \geometry{papersize={\persistpaperwidth,\persistpaperheight},
-          top=20mm, bottom=20mm, left=22mm, right=22mm}
+          top=\persistmargintop, bottom=\persistmarginbottom,
+          left=\persistmarginleft, right=\persistmarginright}
 
 % ── Fonts ────────────────────────────────────────────────────────────────────
 \usepackage{fontspec}

@@ -127,7 +127,8 @@
   \ifx\persistletterheadmode\persistlhfirst
     \setlength{\headheight}{14pt}%
     \setlength{\footskip}{28pt}%
-    \geometry{top=15mm, bottom=12mm, left=22mm, right=22mm,
+    \geometry{top=\persistheadmargintop, bottom=\persistheadmarginbottom,
+              left=\persistmarginleft, right=\persistmarginright,
               includehead, includefoot,
               headheight=14pt, headsep=6mm, footskip=28pt}%
     \fancyfoot[C]{{\fontsize{9}{11}\selectfont\persistpagelabel}}%
@@ -151,7 +152,14 @@
     % `includehead`/`includefoot` make `top` and `bottom` the distance from the
     % paper edge to the *bands*, not to the body. Without them the header is
     % pinned to the paper edge and the letterhead sits higher than the firm's own.
-    \geometry{top=15mm, bottom=12mm, left=22mm, right=22mm,
+    %
+    % The margins are the ones the attorney chose — \persistmarginleft and the
+    % rest, from persist-layout.tex. This second \geometry overrides the first,
+    % so hardcoding them here means a page-setup margin applies to an invoice
+    % and is thrown away on the notice it was set for, which is the document
+    % that has a filing requirement in the first place.
+    \geometry{top=\persistheadmargintop, bottom=\persistheadmarginbottom,
+              left=\persistmarginleft, right=\persistmarginright,
               includehead, includefoot,
               headheight=108pt, headsep=10mm, footskip=56pt}%
     \persistheadbands

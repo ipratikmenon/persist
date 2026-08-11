@@ -15,6 +15,7 @@ import type {
   DocumentLayout,
   Letterhead,
   LineSpacing,
+  Margins,
   PageNumbers,
   Paper,
 } from '@/lib/ipc-types';
@@ -63,6 +64,17 @@ const LETTERHEADS: Array<[LetterheadChoice, string]> = [
 
 const SIZES = [10, 11, 12, 13, 14, 16];
 
+// Four boxes rather than Normal/Narrow/Wide. A direction to leave 40mm on the
+// left and 20mm elsewhere — a binding margin, which Indian forums do ask for —
+// has no preset, and an attorney holding such a direction should be able to
+// type what it says.
+const MARGIN_SIDES: Array<[keyof Margins, string]> = [
+  ['topMm', 'Top'],
+  ['bottomMm', 'Bottom'],
+  ['leftMm', 'Left'],
+  ['rightMm', 'Right'],
+];
+
 export function PageSetup({ layout, onChange }: Props) {
   const [open, setOpen] = useState(false);
   const set = (patch: Partial<DocumentLayout>) => onChange({ ...layout, ...patch });
@@ -80,6 +92,16 @@ export function PageSetup({ layout, onChange }: Props) {
       .map((part) => Number.parseInt(part.trim(), 10))
       .filter((n) => Number.isFinite(n) && n > 0);
     if (pages.length > 0) set({ letterhead: { type: 'pages', pages } });
+  };
+
+  // Taken as typed rather than clamped on each keystroke: clamping would turn
+  // the "4" on the way to "40" into the smallest margin allowed, and the box
+  // would fight the person typing in it. Keel refuses the ones that cannot be
+  // printed, in a sentence.
+  const setMargin = (side: keyof Margins, typed: string) => {
+    const mm = Number(typed);
+    if (!Number.isFinite(mm)) return;
+    set({ margins: { ...layout.margins, [side]: mm } });
   };
 
   const chooseLetterhead = (choice: LetterheadChoice) => {
@@ -147,6 +169,27 @@ export function PageSetup({ layout, onChange }: Props) {
               onChange={(font) => set({ font })}
             />
           </Row>
+
+          <Row>
+            {MARGIN_SIDES.map(([side, label]) => (
+              <Field key={side} label={`${label} margin`}>
+                <input
+                  type="number"
+                  min={5}
+                  max={100}
+                  step={1}
+                  value={layout.margins[side]}
+                  onChange={(e) => setMargin(side, e.target.value)}
+                  style={controlStyle}
+                />
+              </Field>
+            ))}
+          </Row>
+          <p style={hintStyle}>
+            Margins in millimetres, measured from the edge of the sheet. A left
+            margin wider than the others is what a forum means when it asks for
+            a margin for binding.
+          </p>
 
           <Row>
             <Choice
@@ -218,14 +261,7 @@ export function PageSetup({ layout, onChange }: Props) {
             />
           </div>
 
-          <p
-            style={{
-              margin: `${spacing[4]} 0 0`,
-              fontFamily: fonts.ui,
-              fontSize: fontSizes.label,
-              color: colors.textTertiary,
-            }}
-          >
+          <p style={hintStyle}>
             First page only sets the letterhead at the top of page one and leaves
             the rest as plain continuation sheets — with a normal top margin, not
             a blank band.
@@ -324,6 +360,13 @@ function Toggle({
     </label>
   );
 }
+
+const hintStyle: React.CSSProperties = {
+  margin: `${spacing[4]} 0 0`,
+  fontFamily: fonts.ui,
+  fontSize: fontSizes.label,
+  color: colors.textTertiary,
+};
 
 const controlStyle: React.CSSProperties = {
   width: '100%',

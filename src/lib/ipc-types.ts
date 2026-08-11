@@ -766,6 +766,20 @@ export type LineSpacing = 'single' | 'oneAndHalf' | 'double';
 
 export type PageNumbers = 'none' | 'plain' | 'page' | 'pageOfTotal';
 
+/**
+ * Millimetres, one per side.
+ *
+ * Four numbers rather than Normal/Narrow/Wide: a forum that specifies a margin
+ * specifies a measurement, and it is usually the left one — a filing is bound
+ * down that edge.
+ */
+export interface Margins {
+  topMm: number;
+  bottomMm: number;
+  leftMm: number;
+  rightMm: number;
+}
+
 export type Letterhead =
   | { type: 'allPages' }
   | { type: 'firstPageOnly' }
@@ -778,6 +792,7 @@ export interface DocumentLayout {
   font: BodyFont;
   fontSizePt: number;
   lineSpacing: LineSpacing;
+  margins: Margins;
   bold: boolean;
   italic: boolean;
   letterhead: Letterhead;
@@ -792,6 +807,7 @@ export const DEFAULT_LAYOUT: DocumentLayout = {
   font: 'notoSerif',
   fontSizePt: 12,
   lineSpacing: 'single',
+  margins: { topMm: 20, bottomMm: 20, leftMm: 22, rightMm: 22 },
   bold: false,
   italic: false,
   letterhead: { type: 'allPages' },

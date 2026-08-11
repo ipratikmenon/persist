@@ -2,9 +2,9 @@
 //
 // The drafter should never have to format a document. They choose what it says;
 // Persist decides where it sits on the page. This module is the small set of
-// choices that are genuinely the attorney's — paper, typeface, size, spacing,
-// page numbering, and which pages carry the firm's letterhead — expressed once
-// and applied to every template.
+// choices that are genuinely the attorney's — paper, margins, typeface, size,
+// spacing, page numbering, and which pages carry the firm's letterhead —
+// expressed once and applied to every template.
 //
 // NOT TEMPLATE FIELDS
 //
@@ -45,6 +45,17 @@ pub enum Paper {
 }
 
 impl Paper {
+    /// Width and height in millimetres. One source of truth: the LaTeX lengths
+    /// are formatted from these, and `validate` measures the text block against
+    /// them to decide whether a set of margins leaves anything to print on.
+    fn size_mm(self) -> (f32, f32) {
+        match self {
+            Paper::A4 => (210.0, 297.0),
+            // 8.5 x 14 in.
+            Paper::Legal => (215.9, 355.6),
+        }
+    }
+
     /// Width and height, as LaTeX lengths.
     ///
     /// Explicit dimensions rather than geometry's named `a4paper`/`legalpaper`
@@ -53,12 +64,9 @@ impl Paper {
     /// and leaves the document whatever size the class made it. It went out as
     /// A4 with "Legal" selected until a compile test measured the MediaBox.
     /// `papersize={w,h}` takes values, and values are expanded.
-    fn dimensions(self) -> (&'static str, &'static str) {
-        match self {
-            Paper::A4 => ("210mm", "297mm"),
-            // 8.5 x 14 in.
-            Paper::Legal => ("215.9mm", "355.6mm"),
-        }
+    fn dimensions(self) -> (String, String) {
+        let (width, height) = self.size_mm();
+        (format!("{width}mm"), format!("{height}mm"))
     }
 }
 
@@ -126,6 +134,88 @@ impl LineSpacing {
     }
 }
 
+/// Page margins, in millimetres, one per side.
+///
+/// Four numbers rather than named presets. A forum that specifies a margin
+/// specifies a measurement — and it is usually the left one, because a filing
+/// is bound down that edge and a narrow left margin puts the first character of
+/// every line under the stitching. "Normal / Narrow / Wide" cannot answer a
+/// direction to leave 40mm on the left and 20mm elsewhere; four fields can.
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct Margins {
+    pub top_mm: f32,
+    pub bottom_mm: f32,
+    pub left_mm: f32,
+    pub right_mm: f32,
+}
+
+impl Default for Margins {
+    fn default() -> Self {
+        // What persist-base.tex has always set, so a caller that says nothing
+        // about margins gets the page it got before margins were a choice.
+        Margins { top_mm: 20.0, bottom_mm: 20.0, left_mm: 22.0, right_mm: 22.0 }
+    }
+}
+
+/// The letterhead band sits nearer the paper edge than a plain document's body
+/// does. Measured off the firm's own notice: the mark starts 15mm down and the
+/// registered-office footer ends 12mm up, against the 20mm of body margin a
+/// page without the letterhead carries. Those two insets belong to the artwork
+/// rather than to the attorney's margin, so the band keeps them and moves when
+/// the margin moves — 30mm of top margin puts the mark at 25mm, not at 15mm.
+const LETTERHEAD_TOP_INSET_MM: f32 = 5.0;
+const LETTERHEAD_BOTTOM_INSET_MM: f32 = 8.0;
+
+/// Nothing is placed closer than this to the edge of the sheet. Consumer laser
+/// printers have an unprintable border of roughly 4-5mm and simply clip what
+/// falls inside it, which on a served notice means a page number that is not
+/// there.
+const PRINTABLE_EDGE_MM: f32 = 5.0;
+
+/// Past this a margin is not a margin, it is a mistake in the box — 100mm is
+/// already a third of the way down an A4 sheet.
+const MAX_MARGIN_MM: f32 = 100.0;
+
+/// Enough width to set a paragraph in. Below this the justification breaks down
+/// into rivers and single-word lines long before the geometry itself fails.
+const MIN_TEXT_WIDTH_MM: f32 = 90.0;
+
+/// The letterhead head band is two minipages side by side — 54mm for the mark
+/// and 62mm for the partner block. Narrower than their sum and fancyhdr sets
+/// them overlapping: the second partner's email prints through the logo, with
+/// only an overfull-hbox warning in a log nobody reads.
+const LETTERHEAD_BAND_WIDTH_MM: f32 = 54.0 + 62.0;
+
+/// How much of the page height the letterhead consumes before the body starts:
+/// a 108pt head band (38.1mm) plus the 10mm headsep under it.
+const LETTERHEAD_BAND_HEIGHT_MM: f32 = 48.1;
+
+/// Enough height to be worth printing — about fifteen lines at 12pt.
+const MIN_TEXT_HEIGHT_MM: f32 = 60.0;
+
+impl Margins {
+    /// Where the letterhead band goes: the same margin the attorney chose, less
+    /// the inset the artwork was measured at, and never off the printable
+    /// sheet. `\applyletterhead` re-runs `\geometry` with these.
+    fn head_top_mm(self) -> f32 {
+        (self.top_mm - LETTERHEAD_TOP_INSET_MM).max(PRINTABLE_EDGE_MM)
+    }
+
+    fn head_bottom_mm(self) -> f32 {
+        (self.bottom_mm - LETTERHEAD_BOTTOM_INSET_MM).max(PRINTABLE_EDGE_MM)
+    }
+
+    fn each_side(self) -> [(&'static str, f32); 4] {
+        [
+            ("top", self.top_mm),
+            ("bottom", self.bottom_mm),
+            ("left", self.left_mm),
+            ("right", self.right_mm),
+        ]
+    }
+}
+
 /// Which pages carry the firm's identity — the mark, the partners, the
 /// registered-office footer.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -165,6 +255,7 @@ pub struct DocumentLayout {
     /// Points. Indian forums commonly ask for 14.
     pub font_size_pt: f32,
     pub line_spacing: LineSpacing,
+    pub margins: Margins,
     /// Set the whole body bold. Off by default, and it should stay off — this
     /// exists because a document occasionally has to be produced that way, not
     /// because it is ever good typography.
@@ -184,6 +275,7 @@ impl Default for DocumentLayout {
             font: BodyFont::NotoSerif,
             font_size_pt: 12.0,
             line_spacing: LineSpacing::Single,
+            margins: Margins::default(),
             bold: false,
             italic: false,
             letterhead: Letterhead::AllPages,
@@ -220,6 +312,57 @@ impl DocumentLayout {
                 bail!("Pages are numbered from 1.");
             }
         }
+        self.validate_margins()?;
+        Ok(())
+    }
+
+    /// Margins are refused here, in sentences, rather than at the engine, where
+    /// too little width is an overfull box in a log and too little height is a
+    /// document that silently runs to twice the pages.
+    fn validate_margins(&self) -> Result<()> {
+        for (side, mm) in self.margins.each_side() {
+            if !(PRINTABLE_EDGE_MM..=MAX_MARGIN_MM).contains(&mm) {
+                bail!(
+                    "The {side} margin must be between {PRINTABLE_EDGE_MM:.0} and \
+                     {MAX_MARGIN_MM:.0} millimetres. A printer cannot put ink closer \
+                     than about {PRINTABLE_EDGE_MM:.0}mm to the edge of the sheet."
+                );
+            }
+        }
+
+        let (paper_width, paper_height) = self.paper.size_mm();
+        let shows_letterhead = !matches!(self.letterhead, Letterhead::None);
+
+        let width = paper_width - self.margins.left_mm - self.margins.right_mm;
+        if shows_letterhead && width < LETTERHEAD_BAND_WIDTH_MM {
+            bail!(
+                "The letterhead needs {LETTERHEAD_BAND_WIDTH_MM:.0}mm across the page — \
+                 the firm's mark and the partners' details sit side by side — and these \
+                 margins leave {width:.0}mm. Narrow the left or right margin, or take \
+                 the letterhead off this document."
+            );
+        }
+        if width < MIN_TEXT_WIDTH_MM {
+            bail!(
+                "These margins leave only {width:.0}mm of text across the page, which is \
+                 too narrow to set a paragraph in. Narrow the left or right margin."
+            );
+        }
+
+        // Conservative on a letterhead document: the band is hung from
+        // `head_top_mm`, which is above `top_mm`, so the real body is a little
+        // taller than this. Refusing slightly early is the right side to err on.
+        let height = paper_height - self.margins.top_mm - self.margins.bottom_mm;
+        let band = if shows_letterhead { LETTERHEAD_BAND_HEIGHT_MM } else { 0.0 };
+        if height - band < MIN_TEXT_HEIGHT_MM {
+            let after = if shows_letterhead { ", once the letterhead band is set" } else { "" };
+            bail!(
+                "These margins leave only {:.0}mm down the page{after}, which is not \
+                 enough to print on. Reduce the top or bottom margin.",
+                height - band
+            );
+        }
+
         Ok(())
     }
 
@@ -239,6 +382,22 @@ impl DocumentLayout {
         out.push_str(&format!("\\def\\persistpaperwidth{{{width}}}\n"));
         out.push_str(&format!("\\def\\persistpaperheight{{{height}}}\n"));
         out.push_str(&format!("\\def\\persistmainfont{{{}}}\n", self.font.family()));
+
+        // Two sets of margins from one choice. The body block is set by
+        // persist-base; a letterhead document then re-runs \geometry in
+        // \applyletterhead to make room for the bands, and if that second run
+        // did not read these the margin would apply to an invoice and be
+        // ignored on the notice the attorney actually set it for.
+        let m = self.margins;
+        out.push_str(&format!("\\def\\persistmargintop{{{:.1}mm}}\n", m.top_mm));
+        out.push_str(&format!("\\def\\persistmarginbottom{{{:.1}mm}}\n", m.bottom_mm));
+        out.push_str(&format!("\\def\\persistmarginleft{{{:.1}mm}}\n", m.left_mm));
+        out.push_str(&format!("\\def\\persistmarginright{{{:.1}mm}}\n", m.right_mm));
+        out.push_str(&format!("\\def\\persistheadmargintop{{{:.1}mm}}\n", m.head_top_mm()));
+        out.push_str(&format!(
+            "\\def\\persistheadmarginbottom{{{:.1}mm}}\n",
+            m.head_bottom_mm()
+        ));
 
         // scrextend wants both numbers. Leading is the type size times the
         // chosen spacing times 1.2 — the ratio LaTeX itself uses for "single".
@@ -342,6 +501,47 @@ mod tests {
         assert!(tex.contains("\\def\\persistpagenumbers{pageoftotal}"), "{tex}");
         assert!(tex.contains("\\persistshowheadtrue"), "{tex}");
         assert!(tex.contains("\\def\\persistbodystyle{}"), "{tex}");
+        assert!(tex.contains("\\def\\persistmarginleft{22.0mm}"), "{tex}");
+        assert!(tex.contains("\\def\\persistmargintop{20.0mm}"), "{tex}");
+        // The band as the firm's own notice measures it, unchanged.
+        assert!(tex.contains("\\def\\persistheadmargintop{15.0mm}"), "{tex}");
+        assert!(tex.contains("\\def\\persistheadmarginbottom{12.0mm}"), "{tex}");
+    }
+
+    /// A margin has to reach both `\geometry` calls. persist-base sets the body
+    /// block; `\applyletterhead` re-runs geometry to make room for the bands and
+    /// overrides it, so a left margin that is only emitted for the body applies
+    /// to an invoice and is silently dropped on a notice.
+    #[test]
+    fn a_margin_is_emitted_for_the_letterhead_bands_as_well_as_the_body() {
+        let tex = DocumentLayout {
+            margins: Margins { top_mm: 30.0, bottom_mm: 40.0, left_mm: 45.0, right_mm: 18.0 },
+            ..Default::default()
+        }
+        .to_latex();
+
+        assert!(tex.contains("\\def\\persistmargintop{30.0mm}"), "{tex}");
+        assert!(tex.contains("\\def\\persistmarginbottom{40.0mm}"), "{tex}");
+        assert!(tex.contains("\\def\\persistmarginleft{45.0mm}"), "{tex}");
+        assert!(tex.contains("\\def\\persistmarginright{18.0mm}"), "{tex}");
+        // Left and right are the same number in both places — a band is as wide
+        // as the text it sits over. Top and bottom carry the artwork's inset.
+        assert!(tex.contains("\\def\\persistheadmargintop{25.0mm}"), "{tex}");
+        assert!(tex.contains("\\def\\persistheadmarginbottom{32.0mm}"), "{tex}");
+    }
+
+    /// The inset would put the band off the sheet at the narrowest margin the
+    /// attorney is allowed to ask for, and a printer would clip it.
+    #[test]
+    fn the_letterhead_band_never_leaves_the_printable_sheet() {
+        let tex = DocumentLayout {
+            margins: Margins { top_mm: 6.0, bottom_mm: 6.0, ..Default::default() },
+            ..Default::default()
+        }
+        .to_latex();
+
+        assert!(tex.contains("\\def\\persistheadmargintop{5.0mm}"), "{tex}");
+        assert!(tex.contains("\\def\\persistheadmarginbottom{5.0mm}"), "{tex}");
     }
 
     #[test]
@@ -416,6 +616,52 @@ mod tests {
         assert!(DocumentLayout::default().validate().is_ok());
     }
 
+    #[test]
+    fn margins_that_would_leave_nothing_to_print_on_are_refused_in_sentences() {
+        let refuse = |margins: Margins, letterhead: Letterhead, paper: Paper| {
+            DocumentLayout { margins, letterhead, paper, ..Default::default() }
+                .validate()
+                .expect_err("should have been refused")
+                .to_string()
+        };
+
+        let off_the_sheet = Margins { left_mm: 2.0, ..Default::default() };
+        assert!(refuse(off_the_sheet, Letterhead::AllPages, Paper::A4)
+            .contains("The left margin must be between 5 and 100 millimetres"));
+
+        // A4 is 210mm wide, so this leaves 110mm — enough to set text in, but
+        // the mark and the partner block need 116mm side by side.
+        let squeezes_the_band = Margins { left_mm: 50.0, right_mm: 50.0, ..Default::default() };
+        let message = refuse(squeezes_the_band, Letterhead::AllPages, Paper::A4);
+        assert!(message.contains("The letterhead needs 116mm"), "{message}");
+        assert!(message.contains("leave 110mm"), "{message}");
+        // The same page without the letterhead is a document, not an error.
+        assert!(DocumentLayout {
+            margins: squeezes_the_band,
+            letterhead: Letterhead::None,
+            ..Default::default()
+        }
+        .validate()
+        .is_ok());
+
+        let no_width = Margins { left_mm: 70.0, right_mm: 70.0, ..Default::default() };
+        assert!(refuse(no_width, Letterhead::None, Paper::A4)
+            .contains("only 70mm of text across the page"));
+
+        // 97mm of page left on A4, of which the letterhead band takes 48.1mm.
+        let no_height = Margins { top_mm: 100.0, bottom_mm: 100.0, ..Default::default() };
+        let message = refuse(no_height, Letterhead::AllPages, Paper::A4);
+        assert!(message.contains("once the letterhead band is set"), "{message}");
+        // Legal is 58.6mm taller, and the same margins fit on it.
+        assert!(DocumentLayout {
+            margins: no_height,
+            paper: Paper::Legal,
+            ..Default::default()
+        }
+        .validate()
+        .is_ok());
+    }
+
     /// The layout arrives from Deck. Nothing in it may be free text that reaches
     /// the engine as markup — every field is an enum or a number.
     #[test]
@@ -446,6 +692,14 @@ mod tests {
         assert_eq!(layout.paper, Paper::Legal);
         assert_eq!(layout.font, BodyFont::NotoSerif);
         assert_eq!(layout.font_size_pt, 12.0);
+        assert_eq!(layout.margins, Margins::default());
+
+        // A forum that asks for a binding margin asks for one side of it, and
+        // Deck should not have to restate the other three to say so.
+        let bound: DocumentLayout =
+            serde_json::from_str(r#"{ "margins": { "leftMm": 40 } }"#).unwrap();
+        assert_eq!(bound.margins.left_mm, 40.0);
+        assert_eq!(bound.margins.right_mm, 22.0);
     }
 }
 
@@ -518,16 +772,62 @@ mod compile_tests {
         fields
     }
 
+    /// The examination reply. It takes `_shared/persist-base` and stops there —
+    /// no letterhead, so no second `\geometry` — which makes it the only shipped
+    /// document that measures the base geometry on its own.
+    fn reply_fields() -> HashMap<String, Field> {
+        [
+            ("FIRM_NAME", "Persistas & Partners"),
+            ("FIRM_ADDRESS", "80-A, Pocket-A, Mayuri Enclave, Delhi - 110096"),
+            ("FIRM_CONTACT", "persistas.pnp@outlook.com"),
+            ("REPLY_DATE", "14 July 2026"),
+            ("REGISTRY_OFFICE", "Delhi"),
+            ("TM_NUMBER", "5642178"),
+            ("TM_MARK", "PETALVEDA"),
+            ("TM_CLASS", "3"),
+            ("APPLICANT_NAME", "Petalveda Scents Private Limited"),
+            ("EXAM_REPORT_DATE", "2 May 2026"),
+            ("ATTORNEY_NAME", "Sree Lakshmi Menon"),
+            (
+                "SUBMISSIONS",
+                "The Applicant's mark is inherently distinctive in relation to the \
+                 goods applied for, and has been in continuous and uninterrupted use \
+                 since 2019 in the course of trade throughout India.",
+            ),
+            (
+                "GROUNDS_TEXT",
+                "The objection under Section 11(1) is misconceived: the cited mark \
+                 covers dissimilar goods, is registered in a different class, and \
+                 has not been shown to be in use.",
+            ),
+            (
+                "PRIOR_USE_BLOCK",
+                "The Applicant further relies on prior use since 12 March 2019.",
+            ),
+        ]
+        .into_iter()
+        .map(|(k, v)| (k.to_owned(), Field::text(v)))
+        .collect()
+    }
+
     async fn compile(layout: &DocumentLayout) -> Vec<u8> {
+        compile_template("legal-notice", &notice_fields(), layout).await
+    }
+
+    async fn compile_template(
+        template: &str,
+        fields: &HashMap<String, Field>,
+        layout: &DocumentLayout,
+    ) -> Vec<u8> {
         let staged = latex::Attachment::new(LAYOUT_FILE, layout.to_latex().into_bytes()).unwrap();
         latex::compile_with(
-            "legal-notice",
-            &notice_fields(),
+            template,
+            fields,
             CompileMode::Final,
             std::slice::from_ref(&staged),
         )
         .await
-        .expect("the notice must compile under every layout offered")
+        .expect("the document must compile under every layout offered")
     }
 
     fn pdfinfo(pdf: &[u8], flags: &[&str]) -> String {
@@ -580,6 +880,78 @@ mod compile_tests {
         String::from_utf8_lossy(&out.stdout).into_owned()
     }
 
+    /// Where the ink actually is on page one, in PDF points from the top-left
+    /// corner of the sheet.
+    struct TextBox {
+        left: f32,
+        right: f32,
+        top: f32,
+    }
+
+    /// Measure page one: the leftmost, rightmost and highest word on it.
+    ///
+    /// `pdftotext -bbox` gives a box per word as XHTML. Word boxes rather than
+    /// the page's own crop or geometry's idea of the text area, because a margin
+    /// is only real if it moved ink — geometry can be set to anything in the
+    /// preamble and a second \geometry call further down can quietly undo it.
+    /// That is exactly what \applyletterhead does.
+    fn text_box(pdf: &[u8]) -> TextBox {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("out.pdf");
+        std::fs::write(&path, pdf).unwrap();
+        let out = std::process::Command::new("pdftotext")
+            .args(["-bbox", "-f", "1", "-l", "1"])
+            .arg(&path)
+            .arg("-")
+            .output()
+            .expect("pdftotext is needed to measure where the text sits");
+        let xml = String::from_utf8_lossy(&out.stdout).into_owned();
+
+        let coordinate = |line: &str, attribute: &str| -> Option<f32> {
+            let rest = line.split_once(attribute)?.1;
+            rest.split('"').nth(1)?.parse().ok()
+        };
+
+        let words: Vec<&str> = xml
+            .lines()
+            .filter(|l| l.trim_start().starts_with("<word "))
+            .collect();
+        assert!(!words.is_empty(), "no words on page one:\n{xml}");
+
+        let least = |attribute| {
+            words
+                .iter()
+                .filter_map(|l| coordinate(l, attribute))
+                .fold(f32::MAX, f32::min)
+        };
+
+        TextBox {
+            left: least("xMin="),
+            top: least("yMin="),
+            right: words
+                .iter()
+                .filter_map(|l| coordinate(l, "xMax="))
+                .fold(f32::MIN, f32::max),
+        }
+    }
+
+    /// Millimetres as PDF points, for comparing against a measured box.
+    fn mm(value: f32) -> f32 {
+        value * 72.0 / 25.4
+    }
+
+    /// Within a millimetre. A glyph's box starts at its left side bearing
+    /// rather than exactly on the margin, so an exact comparison would fail on
+    /// a document that is otherwise correct.
+    fn within_a_millimetre(got: f32, want: f32, what: &str) {
+        assert!(
+            (got - want).abs() < mm(1.0),
+            "{what}: measured {:.1}mm, expected {:.1}mm",
+            got * 25.4 / 72.0,
+            want * 25.4 / 72.0
+        );
+    }
+
     fn embedded_fonts(pdf: &[u8]) -> String {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("out.pdf");
@@ -608,6 +980,75 @@ mod compile_tests {
         let legal = DocumentLayout { paper: Paper::Legal, ..Default::default() };
         let (w, h) = page_size(&compile(&legal).await);
         assert!(close(w, 612.0) && close(h, 1008.0), "Legal is 612x1008pt, got {w}x{h}");
+    }
+
+    // --- margins -------------------------------------------------------------
+
+    /// The base geometry, on a document that has no letterhead over it. The
+    /// examination reply sets a 15cm table, so the margins here stay wide
+    /// enough for it — a narrower page would overfull the table into the right
+    /// margin and the measurement would be of the table, not of the geometry.
+    #[tokio::test]
+    async fn a_margin_moves_the_text_on_a_page_without_the_letterhead() {
+        if !latex::engine_available() {
+            return;
+        }
+
+        let reply = |layout: DocumentLayout| async move {
+            text_box(&compile_template("tm-examination-reply", &reply_fields(), &layout).await)
+        };
+
+        let house = reply(DocumentLayout::default()).await;
+        within_a_millimetre(house.left, mm(22.0), "the house left margin");
+        within_a_millimetre(house.right, mm(210.0 - 22.0), "the house right margin");
+
+        let bound = DocumentLayout {
+            margins: Margins { left_mm: 40.0, right_mm: 15.0, top_mm: 32.0, ..Default::default() },
+            ..Default::default()
+        };
+        let moved = reply(bound).await;
+        within_a_millimetre(moved.left, mm(40.0), "a binding left margin");
+        within_a_millimetre(moved.right, mm(210.0 - 15.0), "a narrower right margin");
+        // The top is measured as a movement rather than against 32mm: the first
+        // line here is the firm's name at \LARGE, whose ascender rises above the
+        // text area by however much it exceeds \topskip — measured at 2.2mm,
+        // which is a property of the face, not of the margin.
+        within_a_millimetre(moved.top - house.top, mm(12.0), "a deeper top margin");
+    }
+
+    /// THE ONE THAT MATTERS.
+    ///
+    /// `\applyletterhead` re-runs `\geometry` to make room for the head band,
+    /// and that second call is the one the page ends up with. Hardcode the
+    /// margins there — as it did until this test — and a margin set in page
+    /// setup applies to an invoice and is silently thrown away on the notice it
+    /// was set for, which is the document that had the filing requirement.
+    ///
+    /// So this measures the same thing as the test above on a document that
+    /// carries the firm's letterhead, where nothing about the generated LaTeX
+    /// looks any different.
+    #[tokio::test]
+    async fn a_margin_reaches_a_document_on_letterhead_too() {
+        if !latex::engine_available() {
+            return;
+        }
+
+        let house = text_box(&compile(&DocumentLayout::default()).await);
+        within_a_millimetre(house.left, mm(22.0), "the house left margin, on letterhead");
+        within_a_millimetre(house.right, mm(210.0 - 22.0), "the house right margin, on letterhead");
+
+        let bound = DocumentLayout {
+            margins: Margins { left_mm: 45.0, right_mm: 16.0, top_mm: 35.0, ..Default::default() },
+            ..Default::default()
+        };
+        let moved = text_box(&compile(&bound).await);
+        within_a_millimetre(moved.left, mm(45.0), "a binding left margin, on letterhead");
+        within_a_millimetre(moved.right, mm(210.0 - 16.0), "a narrower right margin, on letterhead");
+
+        // The band moves with the margin, keeping the 5mm the firm's own notice
+        // hangs it above the body — so 20mm to 35mm of top margin drops the
+        // partner block, which is the highest thing on the page, by exactly 15.
+        within_a_millimetre(moved.top - house.top, mm(15.0), "the letterhead band's drop");
     }
 
     // --- fonts ---------------------------------------------------------------
