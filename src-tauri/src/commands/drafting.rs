@@ -15,7 +15,9 @@ use crate::services::annexures::{self, Annexure};
 use crate::services::firm;
 use crate::services::latex::{self, Attachment, CompileMode, Field};
 use crate::services::layout::{self, DocumentLayout};
-use crate::services::templates::{self, FieldError, FieldKind, TemplateManifest};
+use crate::services::templates::{
+    self, FieldError, FieldKind, FieldValue, TemplateManifest,
+};
 use crate::storage::metadata;
 use crate::AppState;
 use std::collections::HashMap;
@@ -29,7 +31,10 @@ use std::collections::HashMap;
 pub struct RenderDocumentInput {
     pub template_id: String,
     /// Attorney-entered values, keyed by field key.
-    pub values: HashMap<String, String>,
+    ///
+    /// A value is either what was typed into one input or, for a `list` field,
+    /// the rows of a repeating group — see `FieldValue`.
+    pub values: HashMap<String, FieldValue>,
     /// Draft for the live preview, Final for anything that leaves the firm.
     pub mode: CompileMode,
     /// Where a Final render is filed. A draft needs none — it is never stored.
@@ -481,20 +486,33 @@ async fn load_annexures(
 /// Keel assembled it; a value arriving from Deck under a computed key is
 /// escaped like any other, so Deck cannot inject LaTeX by naming a field.
 ///
+/// A `list` field is the one place a value from Deck becomes a `Field::raw`,
+/// and the markup in it is the manifest's `itemTemplate` rather than anything
+/// that crossed the bridge: `templates::assemble` escapes every cell it
+/// interpolates. The rows decide how many blocks there are and what they say,
+/// never what shape they take.
+///
 /// A field hidden by its condition, or simply absent, is bound to an empty
 /// string rather than left out: `render` refuses on unfilled placeholders, and
 /// an optional field the attorney skipped is not an error.
 fn to_latex_fields(
     manifest: &TemplateManifest,
-    values: &HashMap<String, String>,
+    values: &HashMap<String, FieldValue>,
 ) -> HashMap<String, Field> {
     manifest
         .fields
         .iter()
         .filter(|spec| !spec.input_only)
         .map(|spec| {
-            let raw = values.get(&spec.key).map(String::as_str).unwrap_or("");
-            (spec.key.clone(), Field::text(raw))
+            let value = values.get(&spec.key);
+            let field = match spec.kind {
+                FieldKind::List { .. } => {
+                    let rows = value.and_then(FieldValue::as_rows).unwrap_or(&[]);
+                    templates::assemble(spec, rows)
+                }
+                _ => Field::text(value.map(FieldValue::as_scalar).unwrap_or("")),
+            };
+            (spec.key.clone(), field)
         })
         .collect()
 }
@@ -519,7 +537,11 @@ pub fn with_computed(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::services::templates::{FieldSpec, ShownWhen};
+    use crate::services::templates::{FieldSpec, Row, ShownWhen};
+
+    fn values(pairs: &[(&str, &str)]) -> HashMap<String, FieldValue> {
+        pairs.iter().map(|(k, v)| ((*k).to_owned(), FieldValue::from(*v))).collect()
+    }
 
     fn spec(key: &str, kind: FieldKind) -> FieldSpec {
         FieldSpec {
@@ -551,10 +573,8 @@ mod tests {
     #[test]
     fn attorney_text_is_escaped_on_its_way_into_the_template() {
         let m = manifest(vec![spec("NAME", FieldKind::Text { max_length: None })]);
-        let values: HashMap<String, String> =
-            [("NAME".to_owned(), "Tata & Sons".to_owned())].into_iter().collect();
 
-        let fields = to_latex_fields(&m, &values);
+        let fields = to_latex_fields(&m, &values(&[("NAME", "Tata & Sons")]));
         assert_eq!(fields["NAME"], Field::text("Tata & Sons"));
     }
 
@@ -563,10 +583,8 @@ mod tests {
     #[test]
     fn a_value_sent_for_a_computed_field_is_still_escaped() {
         let m = manifest(vec![spec("BLOCK", FieldKind::Computed)]);
-        let values: HashMap<String, String> =
-            [("BLOCK".to_owned(), r"\input{/etc/passwd}".to_owned())].into_iter().collect();
 
-        let fields = to_latex_fields(&m, &values);
+        let fields = to_latex_fields(&m, &values(&[("BLOCK", r"\input{/etc/passwd}")]));
         assert_eq!(fields["BLOCK"], Field::text(r"\input{/etc/passwd}"));
         assert_ne!(fields["BLOCK"], Field::raw(r"\input{/etc/passwd}"));
     }
@@ -579,10 +597,8 @@ mod tests {
             spec("FILLED", FieldKind::Text { max_length: None }),
             spec("SKIPPED", FieldKind::Text { max_length: None }),
         ]);
-        let values: HashMap<String, String> =
-            [("FILLED".to_owned(), "x".to_owned())].into_iter().collect();
 
-        let fields = to_latex_fields(&m, &values);
+        let fields = to_latex_fields(&m, &values(&[("FILLED", "x")]));
         assert!(fields.contains_key("SKIPPED"), "an unbound key fails the render");
         assert_eq!(fields["SKIPPED"], Field::text(""));
     }
@@ -595,12 +611,88 @@ mod tests {
         grounds.input_only = true;
 
         let m = manifest(vec![grounds, spec("BLOCK", FieldKind::Computed)]);
-        let values: HashMap<String, String> =
-            [("GROUNDS".to_owned(), "PriorUse".to_owned())].into_iter().collect();
 
-        let fields = to_latex_fields(&m, &values);
+        let fields = to_latex_fields(&m, &values(&[("GROUNDS", "PriorUse")]));
         assert!(!fields.contains_key("GROUNDS"));
         assert!(fields.contains_key("BLOCK"));
+    }
+
+    // -- repeating groups ---------------------------------------------------
+
+    fn sections_spec() -> FieldSpec {
+        spec(
+            "SECTIONS_BLOCK",
+            FieldKind::List {
+                item_fields: vec![
+                    spec("HEADING", FieldKind::Text { max_length: None }),
+                    spec("BODY", FieldKind::Multiline { max_length: None, max_words: None }),
+                ],
+                item_label: "Add a section".into(),
+                item_template: "\\noticesection{{{INDEX}}}{{{HEADING}}}\n{{BODY}}\n".into(),
+                min_items: None,
+                max_items: None,
+            },
+        )
+    }
+
+    fn rows(entries: &[(&str, &str)]) -> FieldValue {
+        FieldValue::Rows(
+            entries
+                .iter()
+                .map(|(heading, body)| {
+                    [
+                        ("HEADING".to_owned(), (*heading).to_owned()),
+                        ("BODY".to_owned(), (*body).to_owned()),
+                    ]
+                    .into_iter()
+                    .collect::<Row>()
+                })
+                .collect(),
+        )
+    }
+
+    /// A list is the one place a value from Deck becomes a `Field::raw`. The
+    /// markup in it comes from the manifest; the attorney's words are escaped
+    /// into it.
+    #[test]
+    fn a_lists_rows_become_one_assembled_block() {
+        let m = manifest(vec![sections_spec()]);
+        let submitted: HashMap<String, FieldValue> = [(
+            "SECTIONS_BLOCK".to_owned(),
+            rows(&[("Background", "That M/s Tata & Sons paid."), ("Demand", "That you refund.")]),
+        )]
+        .into_iter()
+        .collect();
+
+        let fields = to_latex_fields(&m, &submitted);
+        let block = fields["SECTIONS_BLOCK"].as_str();
+
+        assert!(block.contains("\\noticesection{1}{Background}"), "{block}");
+        assert!(block.contains("\\noticesection{2}{Demand}"), "{block}");
+        assert!(block.contains(r"Tata \& Sons"), "a row reached LaTeX unescaped: {block}");
+    }
+
+    /// Deck cannot get raw LaTeX into a document by sending a list field a
+    /// string: what makes the block markup is the manifest's row template, and
+    /// a scalar has no rows to run it over.
+    #[test]
+    fn a_scalar_sent_for_a_list_field_produces_nothing_rather_than_markup() {
+        let m = manifest(vec![sections_spec()]);
+        let submitted = values(&[("SECTIONS_BLOCK", r"\input{/etc/passwd}")]);
+
+        let fields = to_latex_fields(&m, &submitted);
+        assert_eq!(fields["SECTIONS_BLOCK"], Field::raw(String::new()));
+    }
+
+    /// `render` refuses on an unfilled placeholder, so a notice with no
+    /// sections yet still has to bind `{{SECTIONS_BLOCK}}`.
+    #[test]
+    fn a_list_with_no_rows_still_binds_its_placeholder() {
+        let m = manifest(vec![sections_spec()]);
+
+        let fields = to_latex_fields(&m, &HashMap::new());
+        assert!(fields.contains_key("SECTIONS_BLOCK"), "an unbound key fails the render");
+        assert_eq!(fields["SECTIONS_BLOCK"], Field::raw(String::new()));
     }
 
     #[test]

@@ -175,7 +175,32 @@ const fillNotice = async (p) => {
   await fill('CLIENT_NAME', 'Mr. Nikhil Prabhakar');
   await fill('CLIENT_DESCRIPTION', 'son of P. Prabhakaran');
   await fill('CLIENT_ADDRESS', 'A-004, Mangal Apartment, Mayur Vihar Phase-III, New Delhi-110096');
+  await addSections(p, SECTIONS.slice(0, 2));
   await p.waitForTimeout(1200);
+};
+
+// The numbered sections of the notice. There is no right number of them, which
+// is the whole reason the field is a list.
+const SECTIONS = [
+  ['Background',
+   'That my client and you entered into an arrangement on 11 February 2026 for the ' +
+   'purchase of a motor vehicle, and that a sum of ₹1,04,000/- was paid by my client ' +
+   'to you in part performance thereof.'],
+  ['Breach',
+   'That you have failed and neglected to deliver the said vehicle or to refund the ' +
+   'said sum, despite repeated requests made by my client both orally and in writing.'],
+  ['Demand',
+   'That you are hereby called upon to refund the said sum together with interest ' +
+   'thereon within fifteen days of the receipt of this notice.'],
+];
+
+const addSections = async (p, sections) => {
+  for (const [heading, body] of sections) {
+    await p.getByRole('button', { name: '+ Add a section' }).click();
+    await p.waitForTimeout(120);
+    await p.locator('input[id^="SECTIONS_BLOCK-"][id$="-HEADING"]').last().fill(heading);
+    await p.locator('textarea[id^="SECTIONS_BLOCK-"][id$="-BODY"]').last().fill(body);
+  }
 };
 
 const NOTICE = '/drafting/legal-notice?matter=P%26P-2026-TM-0042';
@@ -250,6 +275,18 @@ await elementShot('21-annexures', NOTICE, 'section:has-text("Attach annexures"):
     }
     // Past the debounce, so Keel has come back with the marks.
     await p.waitForTimeout(1500);
+  },
+});
+
+// Repeating groups: three numbered sections, added one at a time, numbered by
+// their order rather than by anything the attorney typed.
+await shot('22-repeating-sections', NOTICE, {
+  setup: async (p) => {
+    await fillNotice(p);
+    await addSections(p, SECTIONS.slice(2));
+    await p.locator('label[for="SECTIONS_BLOCK"]').scrollIntoViewIfNeeded();
+    // Past the debounce, so the preview beside it carries the sections.
+    await p.waitForTimeout(1800);
   },
 });
 

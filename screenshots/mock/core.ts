@@ -717,9 +717,19 @@ const HANDLERS: Record<string, (args: any) => unknown> = {
     const manifest = TEMPLATES
       .find(t => t.id === args?.input?.templateId) ?? TM_REPLY_MANIFEST;
     const values = args?.input?.values ?? {};
+    // A list is short when it has fewer rows than it asks for; a scalar is
+    // short when it is blank. Mirrors `validate` in services/templates.rs
+    // closely enough for a screenshot — the real check is Keel's.
+    const short = (f: any) => {
+      if (f.kind.type === 'list') {
+        const rows = Array.isArray(values[f.key]) ? values[f.key] : [];
+        return rows.length < (f.kind.minItems ?? (f.required === false ? 0 : 1));
+      }
+      return f.required !== false && !String(values[f.key] ?? '').trim();
+    };
     const fieldErrors = manifest.fields
-      .filter((f: any) => f.required !== false && f.kind.type !== 'computed' && !f.inputOnly)
-      .filter((f: any) => !String(values[f.key] ?? '').trim())
+      .filter((f: any) => f.kind.type !== 'computed' && !f.inputOnly)
+      .filter(short)
       .map((f: any) => ({ key: f.key, label: f.label, message: `${f.label} is required.` }));
 
     if (fieldErrors.length > 0) {
@@ -970,10 +980,32 @@ const LEGAL_NOTICE_MANIFEST: any = {
     },
     {
       "key": "SECTIONS_BLOCK",
-      "label": "Sections Block",
+      "label": "Numbered sections",
       "kind": {
-        "type": "computed"
-      }
+        "type": "list",
+        "itemLabel": "Add a section",
+        "minItems": 1,
+        "itemFields": [
+          {
+            "key": "HEADING",
+            "label": "Heading",
+            "kind": {
+              "type": "text",
+              "maxLength": 160
+            },
+            "help": "Set in bold beside the section number."
+          },
+          {
+            "key": "BODY",
+            "label": "Text",
+            "kind": {
+              "type": "multiline"
+            }
+          }
+        ],
+        "itemTemplate": "\\noticesection{{{INDEX}}}{{{HEADING}}}\n\\begin{noticebody}\n{{BODY}}\n\\end{noticebody}\n\n"
+      },
+      "help": "The numbered paragraphs of the notice, in the order they are served. Numbering follows the order — moving a section renumbers the rest."
     },
     {
       "key": "SIGNATORY_BLOCK",

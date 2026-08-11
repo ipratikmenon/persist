@@ -723,6 +723,24 @@ export type FieldKind =
   | { type: 'number';    min?: number | null; max?: number | null }
   | { type: 'select';    options: SelectOption[] }
   | { type: 'checkbox' }
+  /**
+   * A repeating group — the numbered sections of a notice, the tranches of a
+   * payment schedule. The attorney adds as many rows as the matter needs and
+   * Keel assembles them into the one block the template carries.
+   */
+  | {
+      type: 'list';
+      /** The shape of one row. Scoped to the row: two lists may both have a
+       *  `HEADING`, and neither is a field of the form. */
+      itemFields: FieldSpec[];
+      /** The add-a-row button — "Add a section". */
+      itemLabel: string;
+      /** How one row is set in LaTeX. Keel's business; nothing in Deck reads
+       *  it, and it is here only because the manifest arrives whole. */
+      itemTemplate: string;
+      minItems?: number | null;
+      maxItems?: number | null;
+    }
   /** Assembled by Keel. Never shown in the form. */
   | { type: 'computed' };
 
@@ -759,6 +777,45 @@ export interface TemplateManifest {
   authority?: string | null;
   description?: string | null;
   fields: FieldSpec[];
+}
+
+/** One row of a `list` field, keyed by the item field keys. */
+export type FieldRow = Record<string, string>;
+
+/**
+ * What the attorney has entered for one field: the text of an input, or the
+ * rows of a repeating group.
+ *
+ * Sent as-is — a string or an array of objects, with no wrapper. Mirrors
+ * `FieldValue` in services/templates.rs, which is `#[serde(untagged)]` for
+ * exactly this reason.
+ */
+export type FieldValue = string | FieldRow[];
+
+export function isRows(value: FieldValue | undefined): value is FieldRow[] {
+  return Array.isArray(value);
+}
+
+/** The text of a scalar field, or '' — including when a list arrived where a
+ *  scalar was expected, which Keel reports as a field error. */
+export function scalarOf(value: FieldValue | undefined): string {
+  return typeof value === 'string' ? value : '';
+}
+
+/** The rows of a list field, or none. */
+export function rowsOf(value: FieldValue | undefined): FieldRow[] {
+  return isRows(value) ? value : [];
+}
+
+/**
+ * How Keel keys a field error inside a row — `SECTIONS_BLOCK[2].HEADING`.
+ *
+ * Mirrors `row_error_key` in services/templates.rs. Composed rather than
+ * parsed, so an item key containing a bracket cannot be turned into a key that
+ * addresses a different input.
+ */
+export function rowErrorKey(listKey: string, index: number, itemKey: string): string {
+  return `${listKey}[${index}].${itemKey}`;
 }
 
 export interface FieldError {
@@ -844,7 +901,8 @@ export const DEFAULT_LAYOUT: DocumentLayout = {
 
 export interface RenderDocumentInput {
   templateId: string;
-  values: Record<string, string>;
+  /** Keyed by field key. A `list` field's value is its rows. */
+  values: Record<string, FieldValue>;
   mode: CompileMode;
   /** Required for a Final render — where the document is filed. */
   matterId?: string;
