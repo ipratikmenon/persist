@@ -481,6 +481,19 @@ export const ACTIVITY_CODES: { code: ActivityCode; label: string }[] = [
   { code: 'L900', label: 'Travel' },
 ];
 
+/** One partner as they print on the letterhead and sign a notice. */
+export interface FirmPartner {
+  /** Empty for a partner being added — Keel allocates the id on save. */
+  id: string;
+  name: string;
+  /** As it prints under the name — "Advocate & Partner". */
+  role: string;
+  phone: string | null;
+  email: string | null;
+  /** Bar Council enrolment, e.g. D/6361/2020. Printed on the signature block. */
+  enrolmentNumber: string | null;
+}
+
 export interface FirmSettings {
   firmName: string;
   firmGstin: string | null;
@@ -494,6 +507,13 @@ export interface FirmSettings {
   associateRate: number;
   paralegalRate: number;
   gstRate: number;
+  /** Letterhead — printed on correspondence rather than on invoices. */
+  firmWebsite: string | null;
+  firmContactEmail: string | null;
+  firmOfficeLineOne: string | null;
+  firmOfficeLineTwo: string | null;
+  /** The letterhead roster, senior partner first. */
+  partners: FirmPartner[];
   updatedAt: string;
 }
 
@@ -636,6 +656,13 @@ export interface UpdateFirmSettingsInput {
   partnerRate?: number;
   associateRate?: number;
   paralegalRate?: number;
+  firmWebsite?: string;
+  firmContactEmail?: string;
+  firmOfficeLineOne?: string;
+  firmOfficeLineTwo?: string;
+  /** The whole roster, in the order it prints. Omitted leaves it alone;
+   *  sent, it replaces what is there — so removing a partner is removing a row. */
+  partners?: FirmPartner[];
 }
 
 // ---------------------------------------------------------------------------

@@ -107,6 +107,16 @@
       }
     },
     {
+      "key": "RECIPIENT_ADDRESS",
+      "label": "Addressee's address",
+      "kind": {
+        "type": "multiline",
+        "maxLength": 400
+      },
+      "inputOnly": true,
+      "help": "One line per line, as it should appear under the addressee's name."
+    },
+    {
       "key": "RECIPIENT_ADDRESS_BLOCK",
       "label": "Recipient Address Block",
       "kind": {

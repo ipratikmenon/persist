@@ -3,6 +3,7 @@ pub mod ai_router;
 pub mod annexures;
 pub mod cascade_engine;
 pub mod deadline_watcher;
+pub mod firm;
 pub mod keychain;
 pub mod latex;
 pub mod layout;

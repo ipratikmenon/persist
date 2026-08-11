@@ -12,6 +12,7 @@ use crate::services::sync_engine::{self, EntityType, Op};
 use base64::engine::general_purpose::STANDARD as BASE64;
 use base64::Engine as _;
 use crate::services::annexures::{self, Annexure};
+use crate::services::firm;
 use crate::services::latex::{self, Attachment, CompileMode, Field};
 use crate::services::layout::{self, DocumentLayout};
 use crate::services::templates::{self, FieldError, FieldKind, TemplateManifest};
@@ -135,7 +136,7 @@ pub async fn render_document(
     state: tauri::State<'_, AppState>,
 ) -> Result<RenderResult, String> {
     // Drafting produces firm instruments on firm letterhead.
-    rbac::require(&state, Permission::CreateDeadline).await?;
+    let session = rbac::require(&state, Permission::CreateDeadline).await?;
 
     let dir = latex::templates_dir().map_err(|e| e.to_string())?;
     let manifest = templates::get(&dir, &input.template_id).map_err(|e| e.to_string())?;
@@ -174,9 +175,18 @@ pub async fn render_document(
         });
     }
 
+    // The firm's own identity — letterhead, the date the document carries, who
+    // signs it, the addressee block. Computed fields, none of them typed by the
+    // attorney (services/firm.rs).
+    let pool = { state.db.lock().await.clone() };
+    let today = chrono::Local::now().date_naive();
+    let firm = firm::document_fields(&pool, &manifest, &input.values, Some(&session), today)
+        .await
+        .map_err(|e| e.to_string())?;
+
     // The list printed in the notice and the pages appended after it, from one
     // source. `with_computed` overrides anything Deck sent under these keys.
-    let mut fields = to_latex_fields(&manifest, &input.values);
+    let mut fields = with_computed(to_latex_fields(&manifest, &input.values), firm);
     if takes_annexures {
         fields = with_computed(
             fields,
