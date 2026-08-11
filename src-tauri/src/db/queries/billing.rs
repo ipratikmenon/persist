@@ -19,7 +19,26 @@ pub struct FirmSettingsRow {
     pub associate_rate:      f64,
     pub paralegal_rate:      f64,
     pub gst_rate:            f64,
+    // Letterhead (0013). These print on correspondence rather than on an
+    // invoice, but they are the same single row of firm identity.
+    pub firm_website:          Option<String>,
+    pub firm_contact_email:    Option<String>,
+    pub firm_office_line_one:  Option<String>,
+    pub firm_office_line_two:  Option<String>,
     pub updated_at:          String,
+}
+
+/// One partner as the letterhead and the signature block need them.
+#[derive(Debug, sqlx::FromRow, Clone)]
+pub struct FirmPartnerRow {
+    pub id:               String,
+    pub user_id:          Option<String>,
+    pub name:             String,
+    pub role:             String,
+    pub phone:            Option<String>,
+    pub email:            Option<String>,
+    pub enrolment_number: Option<String>,
+    pub sort_order:       i64,
 }
 
 #[derive(Debug, sqlx::FromRow, Clone)]
@@ -106,7 +125,8 @@ pub async fn get_firm_settings(pool: &SqlitePool) -> anyhow::Result<FirmSettings
     let row = sqlx::query_as::<_, FirmSettingsRow>(
         "SELECT id, firm_name, firm_gstin, firm_address, firm_pan, bank_name, bank_account,
                 bank_ifsc, default_hourly_rate, partner_rate, associate_rate, paralegal_rate,
-                gst_rate, updated_at
+                gst_rate, firm_website, firm_contact_email, firm_office_line_one,
+                firm_office_line_two, updated_at
          FROM firm_settings WHERE id = 1"
     )
     .fetch_one(pool)
@@ -126,6 +146,12 @@ pub async fn update_firm_settings(
     partner_rate: Option<f64>,
     associate_rate: Option<f64>,
     paralegal_rate: Option<f64>,
+    // Letterhead (0013), in the same statement as the rest: saving the firm's
+    // identity must not be able to half-succeed.
+    firm_website: Option<&str>,
+    firm_contact_email: Option<&str>,
+    firm_office_line_one: Option<&str>,
+    firm_office_line_two: Option<&str>,
 ) -> anyhow::Result<FirmSettingsRow> {
     sqlx::query(
         "UPDATE firm_settings SET
@@ -139,6 +165,10 @@ pub async fn update_firm_settings(
             partner_rate    = COALESCE(?, partner_rate),
             associate_rate  = COALESCE(?, associate_rate),
             paralegal_rate  = COALESCE(?, paralegal_rate),
+            firm_website         = COALESCE(?, firm_website),
+            firm_contact_email   = COALESCE(?, firm_contact_email),
+            firm_office_line_one = COALESCE(?, firm_office_line_one),
+            firm_office_line_two = COALESCE(?, firm_office_line_two),
             updated_at      = datetime('now')
          WHERE id = 1"
     )
@@ -152,9 +182,104 @@ pub async fn update_firm_settings(
     .bind(partner_rate)
     .bind(associate_rate)
     .bind(paralegal_rate)
+    .bind(firm_website)
+    .bind(firm_contact_email)
+    .bind(firm_office_line_one)
+    .bind(firm_office_line_two)
     .execute(pool)
     .await?;
     get_firm_settings(pool).await
+}
+
+// ---------------------------------------------------------------------------
+// firm_partners queries — the letterhead roster (0013)
+// ---------------------------------------------------------------------------
+
+/// The partners as they print, senior first.
+///
+/// Inactive rows are left out: a partner who has left the firm must stop
+/// appearing on documents the moment they are deactivated, without anyone
+/// having to remember to delete the row.
+pub async fn list_firm_partners(pool: &SqlitePool) -> anyhow::Result<Vec<FirmPartnerRow>> {
+    let rows = sqlx::query_as::<_, FirmPartnerRow>(
+        "SELECT id, user_id, name, role, phone, email, enrolment_number, sort_order
+         FROM firm_partners WHERE is_active = 1 ORDER BY sort_order, name"
+    )
+    .fetch_all(pool)
+    .await?;
+    Ok(rows)
+}
+
+/// What the settings form sends back for one row of the roster.
+#[derive(Debug, Clone)]
+pub struct FirmPartnerInput {
+    /// Empty for a partner being added — the caller allocates the id.
+    pub id:               String,
+    pub name:             String,
+    pub role:             String,
+    pub phone:            Option<String>,
+    pub email:            Option<String>,
+    pub enrolment_number: Option<String>,
+}
+
+/// Replace the letterhead roster with exactly this list, in this order.
+///
+/// Upsert-then-prune rather than delete-then-insert, so that `user_id` — the
+/// link between a partner and their login, which the form never sees — survives
+/// an edit. In one transaction: a half-written letterhead is a document with one
+/// partner on it.
+pub async fn replace_firm_partners(
+    pool: &SqlitePool,
+    partners: &[FirmPartnerInput],
+) -> anyhow::Result<Vec<FirmPartnerRow>> {
+    let mut tx = pool.begin().await?;
+
+    // Rows are matched by id, so a list arriving with unknown ids simply
+    // becomes new partners and the old ones are pruned below.
+    let mut keep: Vec<String> = Vec::with_capacity(partners.len());
+    for (index, partner) in partners.iter().enumerate() {
+        sqlx::query(
+            "INSERT INTO firm_partners
+                 (id, name, role, phone, email, enrolment_number, sort_order)
+             VALUES (?, ?, ?, ?, ?, ?, ?)
+             ON CONFLICT(id) DO UPDATE SET
+                 name             = excluded.name,
+                 role             = excluded.role,
+                 phone            = excluded.phone,
+                 email            = excluded.email,
+                 enrolment_number = excluded.enrolment_number,
+                 sort_order       = excluded.sort_order,
+                 is_active        = 1,
+                 updated_at       = datetime('now')"
+        )
+        .bind(&partner.id)
+        .bind(&partner.name)
+        .bind(&partner.role)
+        .bind(&partner.phone)
+        .bind(&partner.email)
+        .bind(&partner.enrolment_number)
+        .bind(index as i64 + 1)
+        .execute(&mut *tx)
+        .await?;
+        keep.push(partner.id.clone());
+    }
+
+    // Anything not in the submitted list is deactivated rather than deleted:
+    // documents already generated name a partner, and a row that a foreign key
+    // may point at should not disappear because someone edited a form.
+    let placeholders = vec!["?"; keep.len()].join(",");
+    let sql = format!(
+        "UPDATE firm_partners SET is_active = 0, updated_at = datetime('now')
+         WHERE is_active = 1 AND id NOT IN ({placeholders})"
+    );
+    let mut prune = sqlx::query(&sql);
+    for id in &keep {
+        prune = prune.bind(id);
+    }
+    prune.execute(&mut *tx).await?;
+
+    tx.commit().await?;
+    list_firm_partners(pool).await
 }
 
 // ---------------------------------------------------------------------------
@@ -634,6 +759,122 @@ mod tests {
         assert_eq!(s.firm_name, "Persistas & Partners");
         assert!((s.gst_rate - 0.18).abs() < f64::EPSILON);
         assert!((s.partner_rate - 8000.0).abs() < f64::EPSILON);
+    }
+
+    /// The update is fifteen positional arguments, which is exactly the shape of
+    /// call where the office line quietly ends up in the website column. Each
+    /// value is distinct so a transposition cannot pass.
+    #[tokio::test]
+    async fn every_letterhead_value_lands_in_its_own_column() {
+        let pool = test_pool().await;
+
+        update_firm_settings(
+            &pool,
+            None, None, None, None, None, None, None, None, None, None,
+            Some("website.example"),
+            Some("contact@example.in"),
+            Some("office line one"),
+            Some("office line two"),
+        )
+        .await
+        .unwrap();
+
+        let s = get_firm_settings(&pool).await.unwrap();
+        assert_eq!(s.firm_website.as_deref(), Some("website.example"));
+        assert_eq!(s.firm_contact_email.as_deref(), Some("contact@example.in"));
+        assert_eq!(s.firm_office_line_one.as_deref(), Some("office line one"));
+        assert_eq!(s.firm_office_line_two.as_deref(), Some("office line two"));
+        // The billing half of the same row is untouched.
+        assert_eq!(s.firm_name, "Persistas & Partners");
+    }
+
+    #[tokio::test]
+    async fn the_firm_starts_with_its_two_partners_in_order() {
+        let pool = test_pool().await;
+        let partners = list_firm_partners(&pool).await.unwrap();
+
+        assert_eq!(partners.len(), 2);
+        assert_eq!(partners[0].name, "Sreelakshmi Menon");
+        assert_eq!(partners[0].enrolment_number.as_deref(), Some("D/6361/2020"));
+        assert_eq!(partners[1].name, "Kajal Thakur");
+    }
+
+    /// The settings form never sees `user_id` — it is the link between a partner
+    /// and their login. Saving the roster must not drop it, or the next document
+    /// that partner generates would be signed by someone else.
+    #[tokio::test]
+    async fn saving_the_roster_keeps_a_partner_linked_to_their_login() {
+        let pool = test_pool().await;
+        sqlx::query(
+            "INSERT INTO users (id, name, email, role, password_hash)
+             VALUES ('u-1', 'Kajal Thakur', 'kt@persist.in', 'Partner', 'x')"
+        ).execute(&pool).await.unwrap();
+        sqlx::query("UPDATE firm_partners SET user_id = 'u-1' WHERE id = 'partner-kt'")
+            .execute(&pool).await.unwrap();
+
+        let submitted = vec![FirmPartnerInput {
+            id: "partner-kt".into(),
+            name: "Kajal Thakur".into(),
+            role: "Advocate & Partner".into(),
+            phone: Some("+91 93153 67642".into()),
+            email: None,
+            enrolment_number: Some("D/1234/2021".into()),
+        }];
+
+        let after = replace_firm_partners(&pool, &submitted).await.unwrap();
+
+        assert_eq!(after.len(), 1, "the partner left off the list stops printing");
+        assert_eq!(after[0].user_id.as_deref(), Some("u-1"), "the login link was lost");
+        assert_eq!(after[0].enrolment_number.as_deref(), Some("D/1234/2021"));
+    }
+
+    /// Removed from the letterhead, not removed from history: documents already
+    /// generated name this partner.
+    #[tokio::test]
+    async fn a_partner_taken_off_the_letterhead_is_deactivated_not_deleted() {
+        let pool = test_pool().await;
+
+        let keep = vec![FirmPartnerInput {
+            id: "partner-slm".into(),
+            name: "Sreelakshmi Menon".into(),
+            role: "Advocate & Partner".into(),
+            phone: None,
+            email: None,
+            enrolment_number: Some("D/6361/2020".into()),
+        }];
+        replace_firm_partners(&pool, &keep).await.unwrap();
+
+        let still_there: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM firm_partners WHERE id = 'partner-kt'")
+                .fetch_one(&pool).await.unwrap();
+        assert_eq!(still_there, 1, "the row was deleted rather than deactivated");
+        assert_eq!(list_firm_partners(&pool).await.unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn a_new_partner_joins_the_end_of_the_letterhead() {
+        let pool = test_pool().await;
+        let mut submitted: Vec<FirmPartnerInput> = list_firm_partners(&pool)
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|p| FirmPartnerInput {
+                id: p.id, name: p.name, role: p.role, phone: p.phone, email: p.email,
+                enrolment_number: p.enrolment_number,
+            })
+            .collect();
+        submitted.push(FirmPartnerInput {
+            id: "partner-new".into(),
+            name: "A Third Partner".into(),
+            role: "Advocate".into(),
+            phone: None,
+            email: None,
+            enrolment_number: None,
+        });
+
+        let after = replace_firm_partners(&pool, &submitted).await.unwrap();
+        assert_eq!(after.len(), 3);
+        assert_eq!(after[2].name, "A Third Partner");
     }
 
     #[tokio::test]

@@ -26,7 +26,31 @@ pub struct FirmSettings {
     pub associate_rate:      f64,
     pub paralegal_rate:      f64,
     pub gst_rate:            f64,
+    /// Letterhead — printed on correspondence, not on invoices, but the same
+    /// single record of who the firm is.
+    pub firm_website:         Option<String>,
+    pub firm_contact_email:   Option<String>,
+    pub firm_office_line_one: Option<String>,
+    pub firm_office_line_two: Option<String>,
+    /// The partners as they appear on the letterhead, senior first.
+    pub partners:             Vec<FirmPartner>,
     pub updated_at:          String,
+}
+
+/// One partner on the letterhead.
+#[derive(Debug, serde::Serialize, serde::Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct FirmPartner {
+    /// Empty when Deck is adding a row — Keel allocates the id on save.
+    #[serde(default)]
+    pub id:               String,
+    pub name:             String,
+    /// As it prints under the name — "Advocate & Partner".
+    pub role:             String,
+    pub phone:            Option<String>,
+    pub email:            Option<String>,
+    /// Bar Council enrolment, e.g. D/6361/2020. Printed on the signature block.
+    pub enrolment_number: Option<String>,
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize, Clone)]
@@ -199,6 +223,13 @@ pub struct UpdateFirmSettingsInput {
     pub partner_rate:   Option<f64>,
     pub associate_rate: Option<f64>,
     pub paralegal_rate: Option<f64>,
+    pub firm_website:         Option<String>,
+    pub firm_contact_email:   Option<String>,
+    pub firm_office_line_one: Option<String>,
+    pub firm_office_line_two: Option<String>,
+    /// The whole letterhead roster, in the order it prints. Absent leaves it
+    /// alone; present replaces it, so removing a partner is removing a row.
+    pub partners:             Option<Vec<FirmPartner>>,
 }
 
 // ---------------------------------------------------------------------------
@@ -292,19 +323,32 @@ fn rate_for_role(role: &str, settings: &bq::FirmSettingsRow) -> f64 {
 // Commands — Firm Settings
 // ---------------------------------------------------------------------------
 
+fn row_to_firm_settings(r: bq::FirmSettingsRow, partners: Vec<bq::FirmPartnerRow>) -> FirmSettings {
+    FirmSettings {
+        firm_name: r.firm_name, firm_gstin: r.firm_gstin, firm_address: r.firm_address,
+        firm_pan: r.firm_pan, bank_name: r.bank_name, bank_account: r.bank_account,
+        bank_ifsc: r.bank_ifsc, default_hourly_rate: r.default_hourly_rate,
+        partner_rate: r.partner_rate, associate_rate: r.associate_rate,
+        paralegal_rate: r.paralegal_rate, gst_rate: r.gst_rate,
+        firm_website: r.firm_website, firm_contact_email: r.firm_contact_email,
+        firm_office_line_one: r.firm_office_line_one,
+        firm_office_line_two: r.firm_office_line_two,
+        partners: partners.into_iter().map(|p| FirmPartner {
+            id: p.id, name: p.name, role: p.role, phone: p.phone, email: p.email,
+            enrolment_number: p.enrolment_number,
+        }).collect(),
+        updated_at: r.updated_at,
+    }
+}
+
 #[tauri::command]
 pub async fn get_firm_settings(
     state: tauri::State<'_, AppState>,
 ) -> Result<FirmSettings, String> {
     let pool = state.db.lock().await;
     let r = bq::get_firm_settings(&pool).await.map_err(|e| e.to_string())?;
-    Ok(FirmSettings {
-        firm_name: r.firm_name, firm_gstin: r.firm_gstin, firm_address: r.firm_address,
-        firm_pan: r.firm_pan, bank_name: r.bank_name, bank_account: r.bank_account,
-        bank_ifsc: r.bank_ifsc, default_hourly_rate: r.default_hourly_rate,
-        partner_rate: r.partner_rate, associate_rate: r.associate_rate,
-        paralegal_rate: r.paralegal_rate, gst_rate: r.gst_rate, updated_at: r.updated_at,
-    })
+    let partners = bq::list_firm_partners(&pool).await.map_err(|e| e.to_string())?;
+    Ok(row_to_firm_settings(r, partners))
 }
 
 #[tauri::command]
@@ -322,14 +366,32 @@ pub async fn update_firm_settings(
         input.bank_name.as_deref(), input.bank_account.as_deref(),
         input.bank_ifsc.as_deref(),
         input.partner_rate, input.associate_rate, input.paralegal_rate,
+        input.firm_website.as_deref(), input.firm_contact_email.as_deref(),
+        input.firm_office_line_one.as_deref(), input.firm_office_line_two.as_deref(),
     ).await.map_err(|e| e.to_string())?;
-    Ok(FirmSettings {
-        firm_name: r.firm_name, firm_gstin: r.firm_gstin, firm_address: r.firm_address,
-        firm_pan: r.firm_pan, bank_name: r.bank_name, bank_account: r.bank_account,
-        bank_ifsc: r.bank_ifsc, default_hourly_rate: r.default_hourly_rate,
-        partner_rate: r.partner_rate, associate_rate: r.associate_rate,
-        paralegal_rate: r.paralegal_rate, gst_rate: r.gst_rate, updated_at: r.updated_at,
-    })
+
+    // A partner with no name would print as a blank line on every document the
+    // firm issues afterwards, so an unnamed row is dropped rather than saved.
+    let partners = match input.partners {
+        Some(submitted) => {
+            let rows: Vec<bq::FirmPartnerInput> = submitted
+                .into_iter()
+                .filter(|p| !p.name.trim().is_empty())
+                .map(|p| bq::FirmPartnerInput {
+                    id: if p.id.trim().is_empty() { Uuid::new_v4().to_string() } else { p.id },
+                    name: p.name.trim().to_owned(),
+                    role: p.role,
+                    phone: p.phone,
+                    email: p.email,
+                    enrolment_number: p.enrolment_number,
+                })
+                .collect();
+            bq::replace_firm_partners(&pool, &rows).await.map_err(|e| e.to_string())?
+        }
+        None => bq::list_firm_partners(&pool).await.map_err(|e| e.to_string())?,
+    };
+
+    Ok(row_to_firm_settings(r, partners))
 }
 
 // ---------------------------------------------------------------------------

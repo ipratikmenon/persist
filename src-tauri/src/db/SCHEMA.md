@@ -21,6 +21,7 @@ Update this file after every migration. Never let it drift from the actual schem
 | `0010_cascade.sql` | Cascade templates + escalations; `deadlines` rebuilt to admit status `Missed` and carry cascade linkage | Phase 1 M2 ext |
 | `0011_verification.sql` | Dual verification — `deadlines.created_by/reference_number/is_verified/verified_by/verified_at`, docket_errors | Phase 1 M2 ext |
 | `0012_outbox_client.sql` | `sync_outbox` rebuilt to admit entity type `Client` — every mirror table has a FK to `mirror.clients`, so the client row must be pushed like any other entity | Phase 2 M5 |
+| `0013_firm_letterhead.sql` | The firm's letterhead — `firm_settings.firm_website/firm_contact_email/firm_office_line_one/firm_office_line_two`, and the `firm_partners` roster, seeded with the two partners | Phase 4 M9 |
 
 ---
 
@@ -217,7 +218,8 @@ Two users are pre-seeded with default password `persist2026` (bcrypt, cost 12).
 
 ### `firm_settings`
 
-Single-row config table for billing parameters. Always row `id=1`, use UPSERT to update.
+Single-row config table for the firm's own identity — billing parameters and, since
+`0013`, the letterhead. Always row `id=1`, use UPSERT to update.
 Seeded with defaults on first migration.
 
 | Column | Type | Notes |
@@ -235,7 +237,45 @@ Seeded with defaults on first migration.
 | `associate_rate` | REAL NOT NULL DEFAULT 4000.0 | INR per hour |
 | `paralegal_rate` | REAL NOT NULL DEFAULT 2000.0 | INR per hour |
 | `gst_rate` | REAL NOT NULL DEFAULT 0.18 | 18% standard for legal services (SAC 998212) |
+| `firm_website` | TEXT | Letterhead footer — seeded `www.persistas.com` (0013) |
+| `firm_contact_email` | TEXT | Letterhead footer — "Contact Us" (0013) |
+| `firm_office_line_one` | TEXT | Registered office, first line (0013) |
+| `firm_office_line_two` | TEXT | Registered office, second line (0013) |
 | `updated_at` | DATETIME NOT NULL DEFAULT (datetime('now')) | |
+
+The four letterhead columns are read by `services/firm.rs` and bound to the
+`FIRM_WEBSITE`, `FIRM_CONTACT` and `FIRM_OFFICE_LINE_*` placeholders. The office
+is two columns rather than one multi-line address because the footer sets it as
+two centred lines.
+
+### `firm_partners`
+
+The partners as they appear on the letterhead and on a signature block. Added by
+`0013`, seeded with the firm's two partners.
+
+A table rather than `partner_one_*` columns on `firm_settings`: a third partner is
+then an INSERT rather than a migration, an enrolment number belongs to a person
+rather than to the firm, and the signature block needs to identify *which* partner
+signed — which needs a row to point at.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | TEXT PK | `partner-slm`, `partner-kt`, then UUIDs |
+| `user_id` | TEXT UNIQUE REFERENCES users(id) | Their login, where they have one. NULL on a fresh install — users are seeded from Rust after migrations run, so `services/firm.rs` also matches on name ignoring case and spacing |
+| `name` | TEXT NOT NULL | As it prints — "Sreelakshmi Menon" |
+| `role` | TEXT NOT NULL DEFAULT 'Advocate & Partner' | Printed under the name |
+| `phone` | TEXT | Printed on the letterhead |
+| `email` | TEXT | Printed on the letterhead |
+| `enrolment_number` | TEXT | Bar Council enrolment, e.g. `D/6361/2020` — printed on the signature block |
+| `sort_order` | INTEGER NOT NULL DEFAULT 0 | Position on the letterhead; senior partner first |
+| `is_active` | INTEGER NOT NULL DEFAULT 1 | 0 = no longer printed. Deactivated rather than deleted, because generated documents name a partner |
+| `created_at` | DATETIME NOT NULL DEFAULT (datetime('now')) | |
+| `updated_at` | DATETIME NOT NULL DEFAULT (datetime('now')) | |
+
+**Indexes:** `idx_firm_partners_order`
+
+The roster is not limited to two. `letterhead_fields()` fills `PARTNER_ONE_*`,
+`PARTNER_TWO_*` … in `sort_order` for as many slots as the template declares.
 
 ### `time_entries`
 

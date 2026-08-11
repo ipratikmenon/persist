@@ -35,6 +35,7 @@ mod tests {
             "documents", "users", "firm_settings", "time_entries", "invoices",
             "invoice_line_items", "payments", "sessions", "ip_assets",
             "portal_users", "sync_outbox", "client_uploads", "sync_state",
+            "firm_partners",
         ] {
             let found: Option<String> = sqlx::query_scalar(
                 "SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?",
