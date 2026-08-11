@@ -25,6 +25,8 @@ function withDefaults(manifest: any) {
   };
 }
 
+const TEMPLATES: any[] = [];
+
 // Real shipped manifests, so the generated form is the real form.
 const TM_REPLY_MANIFEST: any = {
   "id": "tm-examination-reply",
@@ -697,14 +699,22 @@ const HANDLERS: Record<string, (args: any) => unknown> = {
   // The manifests are the real shipped files, so the form here is the form an
   // attorney gets. The preview is a real compiled PDF — a placeholder image
   // would hide exactly the thing the split screen exists to show.
-  list_templates: () => [TM_REPLY_MANIFEST, INVOICE_MANIFEST].map(withDefaults),
+  list_templates: () => TEMPLATES.map(withDefaults),
   get_template: (args: any) =>
-    withDefaults(
-      [TM_REPLY_MANIFEST, INVOICE_MANIFEST].find(t => t.id === args?.id) ?? TM_REPLY_MANIFEST,
-    ),
+    withDefaults(TEMPLATES.find(t => t.id === args?.id) ?? TM_REPLY_MANIFEST),
+
+  // Attaching a file. Keel reads it, checks the type and strips its metadata;
+  // here the point is only that the row gets a name and an id to refer to.
+  stage_annexure: (args: any) => ({
+    id: `staged-${(stagedCount += 1)}`,
+    filename: String(args?.path ?? '').split('/').pop() || 'attachment.pdf',
+    sizeBytes: 184_320,
+  }),
+  discard_annexure: () => undefined,
+
   render_document: (args: any) => {
     // Mirror Keel: required fields are checked before anything is rendered.
-    const manifest = [TM_REPLY_MANIFEST, INVOICE_MANIFEST]
+    const manifest = TEMPLATES
       .find(t => t.id === args?.input?.templateId) ?? TM_REPLY_MANIFEST;
     const values = args?.input?.values ?? {};
     const fieldErrors = manifest.fields
@@ -720,6 +730,11 @@ const HANDLERS: Record<string, (args: any) => unknown> = {
       fieldErrors: [],
       problem: null,
       documentId: args?.input?.mode === 'final' ? 'doc-generated-1' : null,
+      // Keel allocates the marks from the order of the list; Deck shows what
+      // came back rather than working them out again.
+      annexureMarks: (args?.input?.annexures ?? []).map(
+        (a: any, i: number) => ({ stagedId: a.stagedId, mark: LETTERS[i] ?? '?' }),
+      ),
     };
   },
 
@@ -751,6 +766,240 @@ const HANDLERS: Record<string, (args: any) => unknown> = {
       invitedBy: 'user-kt', invitedAt: stamp(-300), lastLoginAt: stamp(-95) },
   ],
 };
+
+const LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
+let stagedCount = 0;
+
+const LEGAL_NOTICE_MANIFEST: any = {
+  "id": "legal-notice",
+  "name": "Legal Notice",
+  "category": "Litigation",
+  "version": 1,
+  "revised": "2026-08-11",
+  "authority": "Persistas & Partners house format",
+  "description": "Demand notice on the firm's letterhead. The numbered sections, payment particulars and annexures are assembled by Persist; the parties, subject and dates are entered here.",
+  "fields": [
+    {
+      "key": "PARTNER_ONE_NAME",
+      "label": "Partner One Name",
+      "kind": {
+        "type": "computed"
+      }
+    },
+    {
+      "key": "PARTNER_ONE_ROLE",
+      "label": "Partner One Role",
+      "kind": {
+        "type": "computed"
+      }
+    },
+    {
+      "key": "PARTNER_ONE_PHONE",
+      "label": "Partner One Phone",
+      "kind": {
+        "type": "computed"
+      }
+    },
+    {
+      "key": "PARTNER_ONE_EMAIL",
+      "label": "Partner One Email",
+      "kind": {
+        "type": "computed"
+      }
+    },
+    {
+      "key": "PARTNER_TWO_NAME",
+      "label": "Partner Two Name",
+      "kind": {
+        "type": "computed"
+      }
+    },
+    {
+      "key": "PARTNER_TWO_ROLE",
+      "label": "Partner Two Role",
+      "kind": {
+        "type": "computed"
+      }
+    },
+    {
+      "key": "PARTNER_TWO_PHONE",
+      "label": "Partner Two Phone",
+      "kind": {
+        "type": "computed"
+      }
+    },
+    {
+      "key": "PARTNER_TWO_EMAIL",
+      "label": "Partner Two Email",
+      "kind": {
+        "type": "computed"
+      }
+    },
+    {
+      "key": "FIRM_WEBSITE",
+      "label": "Firm Website",
+      "kind": {
+        "type": "computed"
+      }
+    },
+    {
+      "key": "FIRM_CONTACT",
+      "label": "Firm Contact",
+      "kind": {
+        "type": "computed"
+      }
+    },
+    {
+      "key": "FIRM_OFFICE_LINE_ONE",
+      "label": "Firm Office Line One",
+      "kind": {
+        "type": "computed"
+      }
+    },
+    {
+      "key": "FIRM_OFFICE_LINE_TWO",
+      "label": "Firm Office Line Two",
+      "kind": {
+        "type": "computed"
+      }
+    },
+    {
+      "key": "NOTICE_DATE",
+      "label": "Date of notice",
+      "kind": {
+        "type": "computed"
+      }
+    },
+    {
+      "key": "RECIPIENT_NAME",
+      "label": "Addressee",
+      "kind": {
+        "type": "text",
+        "maxLength": 200
+      }
+    },
+    {
+      "key": "RECIPIENT_ADDRESS_BLOCK",
+      "label": "Recipient Address Block",
+      "kind": {
+        "type": "computed"
+      }
+    },
+    {
+      "key": "MODE_OF_SERVICE",
+      "label": "Mode of service",
+      "kind": {
+        "type": "select",
+        "options": [
+          {
+            "value": "THROUGH SPEED POST",
+            "label": "Speed post"
+          },
+          {
+            "value": "THROUGH SPEED POST/ WHATSAPP",
+            "label": "Speed post and WhatsApp"
+          },
+          {
+            "value": "THROUGH SPEED POST/ EMAIL",
+            "label": "Speed post and email"
+          },
+          {
+            "value": "THROUGH EMAIL",
+            "label": "Email"
+          }
+        ]
+      },
+      "help": "Printed under the notice type, as served."
+    },
+    {
+      "key": "SUBJECT",
+      "label": "Subject",
+      "kind": {
+        "type": "multiline",
+        "maxWords": 120
+      },
+      "help": "Set in capitals on the notice. State the demand and the amount."
+    },
+    {
+      "key": "SALUTATION",
+      "label": "Salutation",
+      "kind": {
+        "type": "select",
+        "options": [
+          {
+            "value": "Sir",
+            "label": "Sir"
+          },
+          {
+            "value": "Madam",
+            "label": "Madam"
+          },
+          {
+            "value": "Sir/Madam",
+            "label": "Sir/Madam"
+          }
+        ]
+      }
+    },
+    {
+      "key": "CLIENT_NAME",
+      "label": "Client",
+      "kind": {
+        "type": "text",
+        "maxLength": 200
+      },
+      "autofill": "client.name"
+    },
+    {
+      "key": "CLIENT_DESCRIPTION",
+      "label": "Client's parentage",
+      "kind": {
+        "type": "text",
+        "maxLength": 200
+      },
+      "required": false,
+      "help": "As it appears on the notice, e.g. 'son of P. Prabhakaran'."
+    },
+    {
+      "key": "CLIENT_ADDRESS",
+      "label": "Client's address",
+      "kind": {
+        "type": "multiline",
+        "maxLength": 400
+      }
+    },
+    {
+      "key": "SECTIONS_BLOCK",
+      "label": "Sections Block",
+      "kind": {
+        "type": "computed"
+      }
+    },
+    {
+      "key": "SIGNATORY_BLOCK",
+      "label": "Signatory Block",
+      "kind": {
+        "type": "computed"
+      }
+    },
+    {
+      "key": "ANNEXURES_BLOCK",
+      "label": "Annexures Block",
+      "kind": {
+        "type": "computed"
+      }
+    },
+    {
+      "key": "ANNEXURE_PAGES",
+      "label": "Annexure Pages",
+      "kind": {
+        "type": "computed"
+      }
+    }
+  ]
+};
+
+TEMPLATES.push(LEGAL_NOTICE_MANIFEST, TM_REPLY_MANIFEST, INVOICE_MANIFEST);
 
 export async function invoke<T>(cmd: string, args?: unknown): Promise<T> {
   const handler = HANDLERS[cmd];
