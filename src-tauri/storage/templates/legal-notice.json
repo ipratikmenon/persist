@@ -1,0 +1,221 @@
+{
+  "id": "legal-notice",
+  "name": "Legal Notice",
+  "category": "Litigation",
+  "version": 1,
+  "revised": "2026-08-11",
+  "authority": "Persistas & Partners house format",
+  "description": "Demand notice on the firm's letterhead. The numbered sections, payment particulars and annexures are assembled by Persist; the parties, subject and dates are entered here.",
+  "fields": [
+    {
+      "key": "PARTNER_ONE_NAME",
+      "label": "Partner One Name",
+      "kind": {
+        "type": "computed"
+      }
+    },
+    {
+      "key": "PARTNER_ONE_ROLE",
+      "label": "Partner One Role",
+      "kind": {
+        "type": "computed"
+      }
+    },
+    {
+      "key": "PARTNER_ONE_PHONE",
+      "label": "Partner One Phone",
+      "kind": {
+        "type": "computed"
+      }
+    },
+    {
+      "key": "PARTNER_ONE_EMAIL",
+      "label": "Partner One Email",
+      "kind": {
+        "type": "computed"
+      }
+    },
+    {
+      "key": "PARTNER_TWO_NAME",
+      "label": "Partner Two Name",
+      "kind": {
+        "type": "computed"
+      }
+    },
+    {
+      "key": "PARTNER_TWO_ROLE",
+      "label": "Partner Two Role",
+      "kind": {
+        "type": "computed"
+      }
+    },
+    {
+      "key": "PARTNER_TWO_PHONE",
+      "label": "Partner Two Phone",
+      "kind": {
+        "type": "computed"
+      }
+    },
+    {
+      "key": "PARTNER_TWO_EMAIL",
+      "label": "Partner Two Email",
+      "kind": {
+        "type": "computed"
+      }
+    },
+    {
+      "key": "FIRM_WEBSITE",
+      "label": "Firm Website",
+      "kind": {
+        "type": "computed"
+      }
+    },
+    {
+      "key": "FIRM_CONTACT",
+      "label": "Firm Contact",
+      "kind": {
+        "type": "computed"
+      }
+    },
+    {
+      "key": "FIRM_OFFICE_LINE_ONE",
+      "label": "Firm Office Line One",
+      "kind": {
+        "type": "computed"
+      }
+    },
+    {
+      "key": "FIRM_OFFICE_LINE_TWO",
+      "label": "Firm Office Line Two",
+      "kind": {
+        "type": "computed"
+      }
+    },
+    {
+      "key": "NOTICE_DATE",
+      "label": "Date of notice",
+      "kind": {
+        "type": "computed"
+      }
+    },
+    {
+      "key": "RECIPIENT_NAME",
+      "label": "Addressee",
+      "kind": {
+        "type": "text",
+        "maxLength": 200
+      }
+    },
+    {
+      "key": "RECIPIENT_ADDRESS_BLOCK",
+      "label": "Recipient Address Block",
+      "kind": {
+        "type": "computed"
+      }
+    },
+    {
+      "key": "MODE_OF_SERVICE",
+      "label": "Mode of service",
+      "kind": {
+        "type": "select",
+        "options": [
+          {
+            "value": "THROUGH SPEED POST",
+            "label": "Speed post"
+          },
+          {
+            "value": "THROUGH SPEED POST/ WHATSAPP",
+            "label": "Speed post and WhatsApp"
+          },
+          {
+            "value": "THROUGH SPEED POST/ EMAIL",
+            "label": "Speed post and email"
+          },
+          {
+            "value": "THROUGH EMAIL",
+            "label": "Email"
+          }
+        ]
+      },
+      "help": "Printed under the notice type, as served."
+    },
+    {
+      "key": "SUBJECT",
+      "label": "Subject",
+      "kind": {
+        "type": "multiline",
+        "maxWords": 120
+      },
+      "help": "Set in capitals on the notice. State the demand and the amount."
+    },
+    {
+      "key": "SALUTATION",
+      "label": "Salutation",
+      "kind": {
+        "type": "select",
+        "options": [
+          {
+            "value": "Sir",
+            "label": "Sir"
+          },
+          {
+            "value": "Madam",
+            "label": "Madam"
+          },
+          {
+            "value": "Sir/Madam",
+            "label": "Sir/Madam"
+          }
+        ]
+      }
+    },
+    {
+      "key": "CLIENT_NAME",
+      "label": "Client",
+      "kind": {
+        "type": "text",
+        "maxLength": 200
+      },
+      "autofill": "client.name"
+    },
+    {
+      "key": "CLIENT_DESCRIPTION",
+      "label": "Client's parentage",
+      "kind": {
+        "type": "text",
+        "maxLength": 200
+      },
+      "required": false,
+      "help": "As it appears on the notice, e.g. 'son of P. Prabhakaran'."
+    },
+    {
+      "key": "CLIENT_ADDRESS",
+      "label": "Client's address",
+      "kind": {
+        "type": "multiline",
+        "maxLength": 400
+      }
+    },
+    {
+      "key": "SECTIONS_BLOCK",
+      "label": "Sections Block",
+      "kind": {
+        "type": "computed"
+      }
+    },
+    {
+      "key": "SIGNATORY_BLOCK",
+      "label": "Signatory Block",
+      "kind": {
+        "type": "computed"
+      }
+    },
+    {
+      "key": "ANNEXURES_BLOCK",
+      "label": "Annexures Block",
+      "kind": {
+        "type": "computed"
+      }
+    }
+  ]
+}

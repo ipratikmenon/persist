@@ -949,3 +949,79 @@ mod mode_tests {
         }
     }
 }
+
+#[cfg(test)]
+mod letterhead_tests {
+    use super::*;
+
+    /// The letterhead carries the firm's mark and the registered office on every
+    /// page of everything it sends. It has to compile, and it has to compile
+    /// with the characters the firm's own details contain.
+    #[tokio::test]
+    async fn the_legal_notice_compiles_on_the_firm_letterhead() {
+        if !compile_tests::engine_available() {
+            return;
+        }
+
+        let mut fields: HashMap<String, Field> = [
+            ("PARTNER_ONE_NAME", "Sreelakshmi Menon"),
+            ("PARTNER_ONE_ROLE", "Advocate & Partner"),
+            ("PARTNER_ONE_PHONE", "+91 99535 31789"),
+            ("PARTNER_ONE_EMAIL", "sreelakshmimenon.pnp@outlook.com"),
+            ("PARTNER_TWO_NAME", "Kajal Thakur"),
+            ("PARTNER_TWO_ROLE", "Advocate & Partner"),
+            ("PARTNER_TWO_PHONE", "+91 93153 67642"),
+            ("PARTNER_TWO_EMAIL", "kajalthakur.pnp@outlook.com"),
+            ("FIRM_WEBSITE", "www.persistas.com"),
+            ("FIRM_CONTACT", "persistas.pnp@outlook.com"),
+            ("FIRM_OFFICE_LINE_ONE", "80-A, Pocket-A, Mayuri Enclave,"),
+            ("FIRM_OFFICE_LINE_TWO", "Mayur Vihar Phase-III, Delhi - 110096"),
+            ("RECIPIENT_NAME", "Mr. Mohammed Danish"),
+            ("MODE_OF_SERVICE", "THROUGH SPEED POST/ WHATSAPP"),
+            // The characters that have broken this pipeline before: an
+            // ampersand, a percent, and the rupee sign.
+            ("SUBJECT", "DEMAND FOR REFUND OF ₹1,04,000/- WITH INTEREST @24% PER ANNUM, COSTS & CHARGES"),
+            ("SALUTATION", "Sir"),
+            ("CLIENT_NAME", "Mr. Nikhil Prabhakar"),
+            ("CLIENT_DESCRIPTION", "son of P. Prabhakaran"),
+            ("CLIENT_ADDRESS", "A-004, Mangal Apartment, Vasundhra Enclave, New Delhi-110096"),
+        ]
+        .into_iter()
+        .map(|(k, v)| (k.to_owned(), Field::text(v)))
+        .collect();
+
+        // The blocks Keel assembles. Multi-line and multi-row content is LaTeX
+        // by necessity — everything interpolated into it is escaped first.
+        fields.insert(
+            "NOTICE_DATE".into(),
+            Field::raw("14\\textsuperscript{th} July 2026"),
+        );
+        fields.insert(
+            "RECIPIENT_ADDRESS_BLOCK".into(),
+            Field::raw(format!("{}\\\\\n{}", escape("House No. 460/21,"), escape("Lucknow – 226003"))),
+        );
+        fields.insert(
+            "SECTIONS_BLOCK".into(),
+            Field::raw(format!(
+                "\\noticesection{{1}}{{{}}}\n\\begin{{noticebody}}\n{}\n\\end{{noticebody}}\n",
+                escape("Background & Circumstances"),
+                escape("That during 2025 you represented yourself as associated with a lender, 100% falsely.")
+            )),
+        );
+        fields.insert(
+            "SIGNATORY_BLOCK".into(),
+            Field::raw("Sree Lakshmi Menon\\\\\nD/6361/2020\\\\\nAdvocates"),
+        );
+        fields.insert(
+            "ANNEXURES_BLOCK".into(),
+            Field::raw(format!("\\noindent {}", escape("Annexure-A(i): Screenshot for ₹7,000/-."))),
+        );
+
+        let pdf = compile_latex("legal-notice", &fields)
+            .await
+            .expect("the legal notice must compile");
+
+        assert!(pdf.starts_with(b"%PDF-"));
+        assert!(pdf.len() > 40_000, "the logo should make this substantial: {}", pdf.len());
+    }
+}

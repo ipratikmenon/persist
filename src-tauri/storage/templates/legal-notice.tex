@@ -1,0 +1,128 @@
+% Legal Notice — Persistas & Partners house format.
+%
+% Modelled on the firm's own notices. The structure is fixed and the language is
+% largely settled; what varies between one notice and the next is the parties,
+% the facts, the sums and the number of numbered sections.
+%
+% The declared fields, their types and their validation live in
+% legal-notice.json. Keep the two in step — a test fails if they drift.
+%
+% ON THE REPEATING PARTS
+%
+% A real notice carries N numbered sections, N payment tranches and N annexures.
+% None of those counts is knowable when the template is written. Until the
+% registry supports repeating groups they arrive as three assembled blocks that
+% Keel builds — SECTIONS_BLOCK, ANNEXURES_BLOCK — using the macros defined in
+% _shared/persist-letterhead.tex. See PROGRESS.md for the design.
+
+\documentclass[12pt,a4paper]{article}
+
+\input{_shared/persist-base}
+\input{_shared/persist-letterhead}
+
+% ── Firm identity ────────────────────────────────────────────────────────────
+% Pulled from firm settings by Keel, so a change of office or number is made
+% once in the app and every notice printed afterwards is correct.
+\renewcommand{\partneronename}{{{PARTNER_ONE_NAME}}}
+\renewcommand{\partneronerole}{{{PARTNER_ONE_ROLE}}}
+\renewcommand{\partneronephone}{{{PARTNER_ONE_PHONE}}}
+\renewcommand{\partneroneemail}{{{PARTNER_ONE_EMAIL}}}
+\renewcommand{\partnertwoname}{{{PARTNER_TWO_NAME}}}
+\renewcommand{\partnertworole}{{{PARTNER_TWO_ROLE}}}
+\renewcommand{\partnertwophone}{{{PARTNER_TWO_PHONE}}}
+\renewcommand{\partnertwoemail}{{{PARTNER_TWO_EMAIL}}}
+\renewcommand{\firmwebsite}{{{FIRM_WEBSITE}}}
+\renewcommand{\firmcontact}{{{FIRM_CONTACT}}}
+\renewcommand{\firmofficeone}{{{FIRM_OFFICE_LINE_ONE}}}
+\renewcommand{\firmofficetwo}{{{FIRM_OFFICE_LINE_TWO}}}
+
+\applyletterhead
+
+\begin{document}
+\color{textPrimary}
+\justifying
+
+\noticebanner{LEGAL NOTICE}
+
+\noticedate{{{NOTICE_DATE}}}
+
+\vspace{2mm}
+
+% ── Addressee ────────────────────────────────────────────────────────────────
+\noindent\textbf{To,}
+
+\vspace{3mm}
+
+\noindent
+\textbf{{{RECIPIENT_NAME}}}\\
+{{RECIPIENT_ADDRESS_BLOCK}}
+
+\vspace{5mm}
+
+\noticebanner{{{MODE_OF_SERVICE}}}
+\noticebanner{WITHOUT PREJUDICE}
+
+\vspace{3mm}
+
+\noticesubject{{{SUBJECT}}}
+
+\vspace{3mm}
+
+\noindent {{SALUTATION}},
+
+\vspace{3mm}
+
+% The instruction paragraph. Every notice the firm issues opens this way: it
+% establishes the retainer and the authority to serve, which is what makes the
+% document a notice rather than a letter.
+\noindent
+Under the instructions from and on behalf of my client, \textbf{{{CLIENT_NAME}}}
+{{CLIENT_DESCRIPTION}}, presently residing at {{CLIENT_ADDRESS}}, I hereby serve
+upon you this Legal Notice in the terms set out hereinbelow and call upon you to
+take due cognizance thereof and act accordingly:
+
+\vspace{2mm}
+
+% ── The numbered sections ────────────────────────────────────────────────────
+% Assembled by Keel from the attorney's sections, each rendered with
+% \noticesection and \begin{noticebody}.
+{{SECTIONS_BLOCK}}
+
+\vspace{4mm}
+
+% ── Closing ──────────────────────────────────────────────────────────────────
+\noindent
+You are, therefore, advised, in your own interest, to immediately discharge your
+legal liability and avoid unnecessary litigation.
+
+\vspace{3mm}
+
+\noindent
+Please govern yourself accordingly and take note of the contents of this notice
+in its entirety.
+
+\vspace{2mm}
+
+\noindent\textit{A copy of this notice is retained in our office for future reference.}
+
+\vspace{6mm}
+
+\noindent Yours Sincerely,
+
+\vspace{14mm}
+
+% ── Signature block ──────────────────────────────────────────────────────────
+% Enrolment numbers are on the signature block because a notice served without
+% them invites a challenge to the signatory's standing.
+\noindent
+{{SIGNATORY_BLOCK}}
+
+\vspace{6mm}
+
+\noindent\textbf{Enclosures / Annexures:}
+
+\vspace{3mm}
+
+{{ANNEXURES_BLOCK}}
+
+\end{document}

@@ -1,0 +1,122 @@
+% Persistas & Partners — firm letterhead.
+%
+% This is the firm's identity as it appears on every piece of correspondence
+% that leaves the office: the mark, the two partners with their enrolment
+% details, and the registered office in the footer. It is separated from
+% persist-base.tex because a template may want the firm's typography without
+% its letterhead — an internal memo, a draft for comment.
+%
+% \input{_shared/persist-base} first; this builds on its colours and fonts.
+%
+% The header and footer are set once here rather than per template. When the
+% firm moves office or a partner's number changes, this file changes and every
+% document produced afterwards is correct.
+
+\usepackage{lastpage}     % "Page 3 of 19" — the count, not just the number
+\usepackage{tabularx}
+\usepackage{changepage}   % adjustwidth, for indented section bodies
+\usepackage{ragged2e}     % justifying
+
+% ── Partner block ────────────────────────────────────────────────────────────
+% One partner's line in the header: name, designation, phone, email.
+%   \partnerblock{name}{designation}{phone}{email}
+\newcommand{\partnerblock}[4]{%
+  \begin{minipage}[t]{\linewidth}
+    \raggedleft
+    {\sffamily\bfseries\fontsize{7.5}{9}\selectfont #1}\\[1pt]
+    {\sffamily\fontsize{7}{8.5}\selectfont #2}\\[1pt]
+    {\sffamily\fontsize{7}{8.5}\selectfont #3}\\[1pt]
+    {\sffamily\fontsize{7}{8.5}\selectfont #4}
+  \end{minipage}%
+}
+
+% ── The letterhead itself ────────────────────────────────────────────────────
+% Applied to every page, because a notice is served page by page and a page
+% without the firm's mark is a page whose provenance is arguable.
+%
+% A template fills these in with \renewcommand and then calls \applyletterhead.
+% Passing thirteen arguments to one macro would be unreadable at the call site
+% and unreachable from fancyhdr, which rebuilds the bands on every page.
+\newcommand{\firmlogo}{_shared/assets/persistas-logo.png}
+\newcommand{\partneronename}{}   \newcommand{\partneronerole}{}
+\newcommand{\partneronephone}{}  \newcommand{\partneroneemail}{}
+\newcommand{\partnertwoname}{}   \newcommand{\partnertworole}{}
+\newcommand{\partnertwophone}{}  \newcommand{\partnertwoemail}{}
+\newcommand{\firmwebsite}{}      \newcommand{\firmcontact}{}
+\newcommand{\firmofficeone}{}    \newcommand{\firmofficetwo}{}
+
+\newcommand{\applyletterhead}{%
+  \pagestyle{fancy}%
+  \fancyhf{}%
+  \renewcommand{\headrulewidth}{0pt}%
+  \renewcommand{\footrulewidth}{0pt}%
+  % Two partner blocks stacked, each four lines, plus the rule between them.
+  % Measured rather than guessed: too small and the second partner's email
+  % prints over the body of the notice.
+  \setlength{\headheight}{108pt}%
+  \setlength{\headsep}{14pt}%
+  \setlength{\footskip}{56pt}%
+  % The page must make room for the band the header now occupies. geometry is
+  % re-run rather than set in persist-base, because a template using the base
+  % without the letterhead should keep the tighter margins.
+  \newgeometry{top=46mm, bottom=32mm, left=22mm, right=22mm,
+               headheight=108pt, headsep=14pt, footskip=56pt}%
+  %
+  \fancyhead[L]{%
+    \raisebox{-0.45\height}{\includegraphics[width=52mm]{\firmlogo}}%
+  }%
+  \fancyhead[R]{%
+    \begin{minipage}[t]{62mm}
+      \partnerblock{\partneronename}{\partneronerole}{\partneronephone}{\partneroneemail}\\[2pt]
+      % The rule separates the two partners without a heavy divider.
+      {\color{textSecondary}\rule{\linewidth}{0.4pt}}\\[3pt]
+      \partnerblock{\partnertwoname}{\partnertworole}{\partnertwophone}{\partnertwoemail}
+    \end{minipage}%
+  }%
+  \fancyfoot[C]{%
+    \begin{minipage}{\textwidth}
+      \centering
+      {\sffamily\fontsize{7.5}{10}\selectfont
+        Website : \textbf{\firmwebsite}\\
+        Contact Us: \textbf{\firmcontact}\\
+        Regd. Office: \textbf{\firmofficeone}\\
+        \textbf{\firmofficetwo}}\\[6pt]
+      {\fontsize{9}{11}\selectfont Page \thepage\ of \pageref{LastPage}}
+    \end{minipage}%
+  }%
+}
+
+% ── Correspondence idioms ────────────────────────────────────────────────────
+% Centred, underlined, bold — the firm's house style for the notice type, the
+% mode of service and the without-prejudice marker.
+\newcommand{\noticebanner}[1]{%
+  \begin{center}\underline{\textbf{#1}}\end{center}
+}
+
+% "14\textsuperscript{th} July 2026", right-aligned. Indian correspondence
+% carries the ordinal; a bare 14/07/2026 reads as a form, not a letter.
+\newcommand{\noticedate}[1]{%
+  \begin{flushright}\textbf{Date:} #1\end{flushright}
+}
+
+% The subject line: bold, justified, and set in caps by the caller — a subject
+% is the one part of a notice a recipient always reads.
+\newcommand{\noticesubject}[1]{%
+  \noindent\textbf{SUBJECT: #1}\par\vspace{2mm}
+}
+
+% A numbered section heading, bold, with the number hanging in the margin.
+\newcommand{\noticesection}[2]{%
+  \vspace{3mm}
+  \noindent
+  \makebox[0.6cm][l]{\textbf{#1.}}%
+  \begin{minipage}[t]{\dimexpr\linewidth-0.6cm\relax}
+    \textbf{#2}
+  \end{minipage}\par
+  \vspace{2mm}
+}
+
+% Body paragraphs inside a numbered section sit indented under the heading.
+\newenvironment{noticebody}%
+  {\begin{adjustwidth}{0.6cm}{0cm}\justifying}%
+  {\end{adjustwidth}}
