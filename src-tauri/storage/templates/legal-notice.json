@@ -198,10 +198,32 @@
     },
     {
       "key": "SECTIONS_BLOCK",
-      "label": "Sections Block",
+      "label": "Numbered sections",
       "kind": {
-        "type": "computed"
-      }
+        "type": "list",
+        "itemLabel": "Add a section",
+        "minItems": 1,
+        "itemFields": [
+          {
+            "key": "HEADING",
+            "label": "Heading",
+            "kind": {
+              "type": "text",
+              "maxLength": 160
+            },
+            "help": "Set in bold beside the section number."
+          },
+          {
+            "key": "BODY",
+            "label": "Text",
+            "kind": {
+              "type": "multiline"
+            }
+          }
+        ],
+        "itemTemplate": "\\noticesection{{{INDEX}}}{{{HEADING}}}\n\\begin{noticebody}\n{{BODY}}\n\\end{noticebody}\n\n"
+      },
+      "help": "The numbered paragraphs of the notice, in the order they are served. Numbering follows the order — moving a section renumbers the rest."
     },
     {
       "key": "SIGNATORY_BLOCK",

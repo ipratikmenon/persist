@@ -17,9 +17,11 @@ import type {
   DocumentLayout,
   DraftAnnexure,
   FieldError,
+  FieldSpec,
+  FieldValue,
   TemplateManifest,
 } from '@/lib/ipc-types';
-import { DEFAULT_LAYOUT } from '@/lib/ipc-types';
+import { DEFAULT_LAYOUT, rowsOf, scalarOf } from '@/lib/ipc-types';
 import { FormField, isVisible } from '@/components/drafting/FormField';
 import { AnnexureList } from '@/components/drafting/AnnexureList';
 import { PageSetup } from '@/components/drafting/PageSetup';
@@ -46,7 +48,7 @@ export function SmartForm() {
   const shouldReduce = useReducedMotion();
 
   const [manifest, setManifest] = useState<TemplateManifest | null>(null);
-  const [values, setValues] = useState<Record<string, string>>({});
+  const [values, setValues] = useState<Record<string, FieldValue>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
   const [previewing, setPreviewing] = useState(false);
@@ -96,8 +98,12 @@ export function SmartForm() {
     [annexures],
   );
 
+  // What the preview waits for. A list is short of what it needs when it has
+  // fewer rows than the manifest asks for — an empty list is not "not filled in
+  // yet" in the way an empty input is, so a required list with no rows belongs
+  // in the same sentence as a blank name.
   const missingRequired = useMemo(
-    () => visibleFields.filter((f) => f.required && !(values[f.key] ?? '').trim()),
+    () => visibleFields.filter((f) => isUnanswered(f, values[f.key])),
     [visibleFields, values],
   );
 
@@ -245,8 +251,8 @@ export function SmartForm() {
             <FormField
               key={spec.key}
               spec={spec}
-              value={values[spec.key] ?? ''}
-              error={errors[spec.key]}
+              value={values[spec.key]}
+              errors={errors}
               onChange={(v) => setValues((prev) => ({ ...prev, [spec.key]: v }))}
             />
           ))}
@@ -391,6 +397,19 @@ export function SmartForm() {
       )}
     </div>
   );
+}
+
+/** Has this field been answered at all?
+ *
+ *  Not a second copy of Keel's validation — Keel is the enforcer and returns
+ *  the messages. This decides only when the preview is worth compiling, so it
+ *  asks the cheapest question: is there anything here yet. */
+function isUnanswered(spec: FieldSpec, value: FieldValue | undefined): boolean {
+  if (spec.kind.type === 'list') {
+    const needed = spec.kind.minItems ?? (spec.required ? 1 : 0);
+    return rowsOf(value).length < needed;
+  }
+  return spec.required && !scalarOf(value).trim();
 }
 
 function Banner({ tone, message }: { tone: 'error' | 'ok'; message: string }) {

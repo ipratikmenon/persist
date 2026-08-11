@@ -10,11 +10,14 @@
 % ON THE REPEATING PARTS
 %
 % A real notice carries N numbered sections, N payment tranches and N annexures.
-% None of those counts is knowable when the template is written. Until the
-% registry supports repeating groups they arrive as assembled blocks that Keel
-% builds — SECTIONS_BLOCK, ANNEXURES_BLOCK, ANNEXURE_PAGES — using the macros
-% defined in _shared/persist-letterhead.tex and _shared/persist-annexures.tex.
-% See PROGRESS.md for the design.
+% None of those counts is knowable when the template is written, so each of them
+% is one placeholder here and a block Keel assembles.
+%
+% SECTIONS_BLOCK is a `list` field: the manifest declares the shape of one
+% section (a heading and its text) and how that section is set, and the attorney
+% adds as many as the notice needs. ANNEXURES_BLOCK and ANNEXURE_PAGES are built
+% from the files attached to the draft. All three use macros defined in
+% _shared/persist-letterhead.tex and _shared/persist-annexures.tex.
 
 \documentclass[12pt,a4paper]{article}
 
@@ -86,8 +89,10 @@ take due cognizance thereof and act accordingly:
 \vspace{2mm}
 
 % ── The numbered sections ────────────────────────────────────────────────────
-% Assembled by Keel from the attorney's sections, each rendered with
-% \noticesection and \begin{noticebody}.
+% One block, however many sections the attorney entered. Each row is set by the
+% itemTemplate in legal-notice.json — \noticesection with the row's number and
+% heading, then the row's text inside a noticebody. The numbering is Keel's, so
+% reordering the sections renumbers them.
 {{SECTIONS_BLOCK}}
 
 \vspace{4mm}
