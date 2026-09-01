@@ -741,8 +741,15 @@ export type FieldKind =
       minItems?: number | null;
       maxItems?: number | null;
     }
-  /** Assembled by Keel. Never shown in the form. */
-  | { type: 'computed' };
+  /**
+   * Assembled by Keel. Never shown in the form, with or without a template.
+   *
+   * `template` is LaTeX the manifest supplies for a block that varies — a
+   * paragraph printed only under some condition, paired with `shownWhen`.
+   * Deck never renders it; it is here so the type says what a manifest can
+   * hold.
+   */
+  | { type: 'computed'; template?: string | null };
 
 export interface SelectOption {
   value: string;

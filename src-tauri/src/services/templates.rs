@@ -191,9 +191,24 @@ pub enum FieldKind {
         #[serde(default)]
         max_items: Option<usize>,
     },
-    /// Filled by Keel, never shown in the form — assembled tables, totals,
-    /// firm identity pulled from settings.
-    Computed,
+    /// Filled by Keel, never shown in the form.
+    ///
+    /// With no `template`, something in Keel supplies it: the firm's identity
+    /// from settings (services/firm.rs), the annexure blocks, a total.
+    ///
+    /// With one, the manifest supplies it — LaTeX carrying `{{KEY}}` for any
+    /// other field the template declares, rendered here. That is how a document
+    /// gets a paragraph that appears only under some condition without a Rust
+    /// change for each one: pair the template with a `shownWhen` and the block
+    /// is empty when the condition does not hold.
+    ///
+    /// The markup is trusted for the same reason `itemTemplate` is — it ships
+    /// in the manifest beside the .tex, as firm work product. The values
+    /// substituted into it are not, and go through `latex::escape`.
+    Computed {
+        #[serde(default)]
+        template: Option<String>,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -283,7 +298,7 @@ pub fn validate(
     let mut errors = Vec::new();
 
     for spec in &manifest.fields {
-        if matches!(spec.kind, FieldKind::Computed) {
+        if matches!(spec.kind, FieldKind::Computed { .. }) {
             continue;
         }
         if !is_visible(spec, manifest, values) {
@@ -542,7 +557,7 @@ fn check_value<'v>(
         // for any manifest the library ships.
         FieldKind::List { .. } => None,
 
-        FieldKind::Computed => None,
+        FieldKind::Computed { .. } => None,
     }
 }
 
@@ -583,6 +598,43 @@ pub fn assemble(spec: &FieldSpec, rows: &[Row]) -> Field {
         out.push_str(&block);
     }
     Field::raw(out)
+}
+
+/// Render a computed field that carries its own template.
+///
+/// Returns `None` when the field has no template — those are the ones something
+/// in Keel fills in, and binding an empty string here would overwrite them.
+///
+/// A field hidden by its `shownWhen` assembles to an empty block rather than to
+/// nothing: `render` refuses to compile on an unfilled placeholder, so the
+/// template's `{{KEY}}` still has to be bound. That is the whole point of the
+/// pairing — the paragraph disappears, the document still builds.
+pub fn assemble_computed(
+    manifest: &TemplateManifest,
+    spec: &FieldSpec,
+    values: &HashMap<String, FieldValue>,
+) -> Option<Field> {
+    let FieldKind::Computed { template: Some(template) } = &spec.kind else {
+        return None;
+    };
+
+    if !is_visible(spec, manifest, values) {
+        return Some(Field::raw(String::new()));
+    }
+
+    let mut block = template.clone();
+    for other in &manifest.fields {
+        // Only keys the manifest declares are substitutable, so a value Deck
+        // invents cannot reach the page by naming a placeholder. Lists are not
+        // substitutable at all: a row set has no scalar text, and a template
+        // that wants one should be a list itself.
+        if other.key == spec.key || matches!(other.kind, FieldKind::List { .. }) {
+            continue;
+        }
+        let value = values.get(&other.key).map(FieldValue::as_scalar).unwrap_or("");
+        block = block.replace(&format!("{{{{{}}}}}", other.key), &latex::escape(value));
+    }
+    Some(Field::raw(block))
 }
 
 /// Parse `YYYY-MM-DD` into a comparable tuple.
@@ -686,6 +738,7 @@ pub fn check_against_template(manifest: &TemplateManifest, tex_source: &str) -> 
 
     for spec in &manifest.fields {
         problems.extend(check_list_shape(spec));
+        problems.extend(check_computed_shape(spec, &declared));
     }
 
     problems.sort();
@@ -700,6 +753,40 @@ pub fn check_against_template(manifest: &TemplateManifest, tex_source: &str) -> 
 /// and refuse the compile of a notice at the moment it was wanted; an item
 /// field the row template never uses is a question the form asks and the
 /// document ignores.
+/// A computed field's own template, checked against the manifest around it.
+///
+/// The same drift a list's `itemTemplate` can have: a paragraph that prints
+/// `{{FIRST_USE_DATE}}` while nothing declares that key produces a document with
+/// a literal `{{FIRST_USE_DATE}}` on it, addressed to a registry.
+fn check_computed_shape(spec: &FieldSpec, declared: &std::collections::HashSet<&str>) -> Vec<String> {
+    let FieldKind::Computed { template: Some(template) } = &spec.kind else {
+        return Vec::new();
+    };
+
+    let key = &spec.key;
+    let mut problems = Vec::new();
+
+    for used in super::latex::placeholders_in(template) {
+        if used == *key {
+            problems.push(format!("{key}'s template refers to {key}, which is itself"));
+        } else if !declared.contains(used.as_str()) {
+            problems.push(format!(
+                "{key}'s template uses {{{{{used}}}}} but the manifest does not declare it"
+            ));
+        }
+    }
+
+    // A template that never varies is a constant, and a constant belongs in the
+    // .tex where it can be read alongside the rest of the document.
+    if problems.is_empty() && super::latex::placeholders_in(template).is_empty() {
+        problems.push(format!(
+            "{key}'s template has no placeholders — put fixed text in the .tex instead"
+        ));
+    }
+
+    problems
+}
+
 fn check_list_shape(spec: &FieldSpec) -> Vec<String> {
     let FieldKind::List { item_fields, item_template, min_items, max_items, .. } = &spec.kind
     else {
@@ -742,7 +829,7 @@ fn check_list_shape(spec: &FieldSpec) -> Vec<String> {
             FieldKind::List { .. } => {
                 problems.push(format!("{key}.{} is a list inside a list", item.key))
             }
-            FieldKind::Computed => problems.push(format!(
+            FieldKind::Computed { .. } => problems.push(format!(
                 "{key}.{} is computed — a row is filled in by the attorney",
                 item.key
             )),
@@ -881,7 +968,7 @@ mod tests {
 
     #[test]
     fn computed_fields_are_never_asked_of_the_attorney() {
-        let m = manifest(vec![spec("LINE_ITEMS_TABLE", FieldKind::Computed)]);
+        let m = manifest(vec![spec("LINE_ITEMS_TABLE", FieldKind::Computed { template: None })]);
         assert!(validate(&m, &HashMap::new()).is_empty());
     }
 
@@ -1436,7 +1523,7 @@ mod tests {
 
     #[test]
     fn a_cell_cannot_be_computed_or_conditional_or_input_only() {
-        let mut computed = spec("TOTAL", FieldKind::Computed);
+        let mut computed = spec("TOTAL", FieldKind::Computed { template: None });
         computed.shown_when = Some(ShownWhen { field: "HEADING".into(), equals: vec!["x".into()] });
         computed.input_only = true;
 
@@ -1470,6 +1557,131 @@ mod tests {
         let list = list_spec("SECTIONS", Some(1), Some(20));
         assert!(check_against_template(&manifest(vec![list]), "{{SECTIONS}}").is_empty());
     }
+
+    // ── Computed fields that carry their own template ───────────────────────
+
+    fn computed_with(template: &str) -> FieldKind {
+        FieldKind::Computed { template: Some(template.to_owned()) }
+    }
+
+    fn vals(pairs: &[(&str, &str)]) -> HashMap<String, FieldValue> {
+        pairs.iter().map(|(k, v)| ((*k).to_owned(), FieldValue::from(*v))).collect()
+    }
+
+    #[test]
+    fn a_computed_template_prints_the_fields_it_names() {
+        let block = spec("PARA", computed_with("Used since {{SINCE}} for {{MARK}}."));
+        let m = manifest(vec![
+            spec("SINCE", FieldKind::Text { max_length: None }),
+            spec("MARK", FieldKind::Text { max_length: None }),
+            block.clone(),
+        ]);
+
+        let out = assemble_computed(&m, &block, &vals(&[("SINCE", "2019"), ("MARK", "PETALVEDA")]));
+        assert_eq!(out.unwrap().as_str(), "Used since 2019 for PETALVEDA.");
+    }
+
+    /// The template is firm work product; what is substituted into it is the
+    /// attorney's prose, and it reaches a document going to a registry.
+    #[test]
+    fn a_value_substituted_into_a_computed_template_is_escaped() {
+        let block = spec("PARA", computed_with("For {{APPLICANT}}."));
+        let m = manifest(vec![
+            spec("APPLICANT", FieldKind::Text { max_length: None }),
+            block.clone(),
+        ]);
+
+        let out = assemble_computed(&m, &block, &vals(&[("APPLICANT", "Tata & Sons, 100% owned")]))
+            .unwrap();
+        assert!(out.as_str().contains(r"Tata \& Sons"), "unescaped: {}", out.as_str());
+        assert!(out.as_str().contains(r"100\%"), "unescaped: {}", out.as_str());
+    }
+
+    /// A value cannot name a placeholder to earn a second substitution — the
+    /// escaping has already turned its braces into `\{`.
+    #[test]
+    fn a_value_cannot_smuggle_in_another_placeholder() {
+        let block = spec("PARA", computed_with("{{A}} and {{B}}"));
+        let m = manifest(vec![
+            spec("A", FieldKind::Text { max_length: None }),
+            spec("B", FieldKind::Text { max_length: None }),
+            block.clone(),
+        ]);
+
+        let out = assemble_computed(&m, &block, &vals(&[("A", "{{B}}"), ("B", "secret")])).unwrap();
+        assert!(
+            !out.as_str().contains("secret and"),
+            "a value was re-substituted: {}",
+            out.as_str()
+        );
+    }
+
+    /// Hidden means an empty block, not an absent one — `render` refuses to
+    /// compile on an unbound placeholder, so the document would not build.
+    #[test]
+    fn a_hidden_computed_template_assembles_to_nothing_rather_than_to_no_value() {
+        let mut block = spec("PARA", computed_with("Used since {{SINCE}}."));
+        block.shown_when = Some(ShownWhen {
+            field: "GROUNDS".into(),
+            equals: vec!["PriorUse".into()],
+        });
+        let m = manifest(vec![
+            spec("GROUNDS", FieldKind::Text { max_length: None }),
+            spec("SINCE", FieldKind::Text { max_length: None }),
+            block.clone(),
+        ]);
+
+        let shown =
+            assemble_computed(&m, &block, &vals(&[("GROUNDS", "PriorUse"), ("SINCE", "2019")]));
+        assert_eq!(shown.unwrap().as_str(), "Used since 2019.");
+
+        let hidden =
+            assemble_computed(&m, &block, &vals(&[("GROUNDS", "NoConfusion"), ("SINCE", "2019")]));
+        assert_eq!(hidden.expect("a value, so the placeholder binds").as_str(), "");
+    }
+
+    /// A computed field with no template is one Keel fills in — the firm's
+    /// identity, the annexure blocks. Returning an empty block for those would
+    /// overwrite them with nothing.
+    #[test]
+    fn a_computed_field_without_a_template_is_left_to_keel() {
+        let block = spec("PARTNER_ONE_NAME", FieldKind::Computed { template: None });
+        let m = manifest(vec![block.clone()]);
+        assert!(assemble_computed(&m, &block, &vals(&[])).is_none());
+    }
+
+    #[test]
+    fn a_computed_template_that_names_an_undeclared_field_is_drift() {
+        let block = spec("PARA", computed_with("Used since {{SINCE}}."));
+        let problems = check_against_template(&manifest(vec![block]), "x {{PARA}} y");
+        assert!(
+            problems.iter().any(|p| p.contains("PARA") && p.contains("SINCE")),
+            "the drift was not reported: {problems:?}"
+        );
+    }
+
+    #[test]
+    fn a_computed_template_that_refers_to_itself_is_drift() {
+        let block = spec("PARA", computed_with("See {{PARA}}."));
+        assert!(
+            check_against_template(&manifest(vec![block]), "x {{PARA}} y")
+                .iter()
+                .any(|p| p.contains("itself")),
+            "self-reference was not reported"
+        );
+    }
+
+    #[test]
+    fn a_computed_template_with_nothing_to_substitute_belongs_in_the_tex() {
+        let block = spec("PARA", computed_with("A fixed sentence."));
+        assert!(
+            check_against_template(&manifest(vec![block]), "x {{PARA}} y")
+                .iter()
+                .any(|p| p.contains("no placeholders")),
+            "a constant masquerading as a computed field was not reported"
+        );
+    }
+
 }
 
 // ---------------------------------------------------------------------------
@@ -1564,7 +1776,7 @@ mod library_tests {
         let manifest = get(&templates_dir(), "invoice").unwrap();
         for field in &manifest.fields {
             assert!(
-                matches!(field.kind, FieldKind::Computed),
+                matches!(field.kind, FieldKind::Computed { .. }),
                 "{} is not computed — the invoice form would now have inputs",
                 field.key
             );

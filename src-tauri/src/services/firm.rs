@@ -62,6 +62,35 @@ pub async fn letterhead_fields(pool: &SqlitePool) -> Result<HashMap<String, Fiel
     let mut put = |key: &str, value: Option<&str>| {
         fields.insert(key.to_owned(), Field::text(value.unwrap_or("")));
     };
+    // The firm's name and postal address predate the letterhead columns — they
+    // are the ones the invoice has always used. Supplied here too because the
+    // Reply to Examination Report heads itself with them and, until this, got
+    // an empty string: a filing to the Registry over a blank firm name, signed
+    // "For " with nothing after it.
+    put("FIRM_NAME", Some(settings.firm_name.as_str()));
+
+    // Two columns can hold an address. `firm_address` came with billing and is
+    // the block printed on a tax invoice; the two office lines came with the
+    // letterhead and are the registered office. They are allowed to differ — a
+    // firm can invoice from one address and be registered at another — so
+    // neither is derived from the other. But a firm that has only ever filled in
+    // the letterhead should not head a filing with nothing, so the office lines
+    // stand in when the invoice address is unset.
+    let office = [
+        settings.firm_office_line_one.as_deref().unwrap_or("").trim(),
+        settings.firm_office_line_two.as_deref().unwrap_or("").trim(),
+    ]
+    .into_iter()
+    .filter(|line| !line.is_empty())
+    .collect::<Vec<_>>()
+    .join(" ");
+    let postal = settings
+        .firm_address
+        .as_deref()
+        .map(str::trim)
+        .filter(|a| !a.is_empty())
+        .unwrap_or(office.as_str());
+    put("FIRM_ADDRESS", Some(postal));
     put("FIRM_WEBSITE", settings.firm_website.as_deref());
     put("FIRM_CONTACT", settings.firm_contact_email.as_deref());
     put("FIRM_OFFICE_LINE_ONE", settings.firm_office_line_one.as_deref());
@@ -251,7 +280,7 @@ pub async fn document_fields(
     let computed: std::collections::HashSet<&str> = manifest
         .fields
         .iter()
-        .filter(|spec| matches!(spec.kind, FieldKind::Computed))
+        .filter(|spec| matches!(spec.kind, FieldKind::Computed { .. }))
         .map(|spec| spec.key.as_str())
         .collect();
 
@@ -331,7 +360,7 @@ mod tests {
                 .map(|key| FieldSpec {
                     key: (*key).to_owned(),
                     label: (*key).to_owned(),
-                    kind: FieldKind::Computed,
+                    kind: FieldKind::Computed { template: None },
                     required: false,
                     help: None,
                     autofill: None,
@@ -794,5 +823,129 @@ mod compile_tests {
             "the signature block does not name the signatory. Page text:\n{}",
             &text[closing..]
         );
+    }
+
+    /// What an attorney fills in on a Reply to Examination Report.
+    fn reply_values() -> HashMap<String, FieldValue> {
+        [
+            ("ATTORNEY_NAME", "Sree Lakshmi Menon"),
+            ("REPLY_DATE", "2026-08-11"),
+            ("REGISTRY_OFFICE", "Delhi"),
+            ("TM_NUMBER", "5544121"),
+            ("TM_MARK", "PETALVEDA"),
+            ("TM_CLASS", "3, 5"),
+            ("APPLICANT_NAME", "Petalveda Naturals Pvt Ltd"),
+            ("EXAM_REPORT_DATE", "2026-06-15"),
+            ("SUBMISSIONS", "The objection under s.11(1) is respectfully denied."),
+            ("GROUNDS", "NoConfusion"),
+            ("GROUNDS_TEXT", "No likelihood of confusion; distinct trade channels."),
+        ]
+        .into_iter()
+        .map(|(k, v)| (k.to_owned(), FieldValue::from(v)))
+        .collect()
+    }
+
+    async fn render_reply(pool: &SqlitePool) -> Vec<u8> {
+        render_reply_with(pool, reply_values()).await
+    }
+
+    async fn render_reply_with(pool: &SqlitePool, values: HashMap<String, FieldValue>) -> Vec<u8> {
+        let dir = latex::templates_dir().expect("the shipped template library");
+        let manifest = crate::services::templates::get(&dir, "tm-examination-reply").unwrap();
+
+        let mut fields: HashMap<String, Field> = manifest
+            .fields
+            .iter()
+            .filter(|spec| !spec.input_only)
+            .map(|spec| {
+                let raw = values.get(&spec.key).map(FieldValue::as_scalar).unwrap_or("");
+                (spec.key.clone(), Field::text(raw))
+            })
+            .collect();
+
+        for spec in &manifest.fields {
+            if let Some(block) =
+                crate::services::templates::assemble_computed(&manifest, spec, &values)
+            {
+                fields.insert(spec.key.clone(), block);
+            }
+        }
+
+        let firm = document_fields(pool, &manifest, &values, None, day(2026, 8, 11))
+            .await
+            .expect("the firm's identity must assemble");
+        fields.extend(firm);
+
+        latex::compile_with("tm-examination-reply", &fields, CompileMode::Final, &[])
+            .await
+            .expect("the reply must compile")
+    }
+
+    /// The notice was not the only template whose letterhead was blank.
+    ///
+    /// The Reply to Examination Report goes to the Trade Marks Registry over the
+    /// firm's name, and declares FIRM_NAME and FIRM_ADDRESS as computed fields
+    /// that nothing filled — so it went out headed by nothing, signed "For "
+    /// with the firm's name missing after it.
+    #[tokio::test]
+    async fn a_reply_to_the_registry_is_headed_and_signed_by_the_firm() {
+        if !latex::engine_available() {
+            return;
+        }
+
+        let pool = test_pool().await;
+        let text = pdf_text(&render_reply(&pool).await);
+
+        assert!(text.contains("Persistas & Partners"), "no firm name:\n{text}");
+        assert!(
+            text.contains("Mayur Vihar"),
+            "no registered address in the letterhead:\n{text}"
+        );
+
+        // The signature reads "For <firm>"; a blank there is the visible half
+        // of the same defect.
+        let closing = text.find("Yours faithfully").expect("the reply must close");
+        assert!(
+            text[closing..].contains("For Persistas & Partners"),
+            "the reply is signed for nobody:\n{}",
+            &text[closing..]
+        );
+    }
+
+    /// The third field on this template that nothing filled.
+    ///
+    /// PRIOR_USE_BLOCK is the paragraph pleading prior use, and it is set only
+    /// where prior use is the ground relied upon. It now carries its own
+    /// template in the manifest, paired with the `shownWhen` that already
+    /// governed the date it cites — so the paragraph and the date it depends on
+    /// cannot come apart.
+    #[tokio::test]
+    async fn the_prior_use_paragraph_appears_only_when_prior_use_is_relied_upon() {
+        if !latex::engine_available() {
+            return;
+        }
+
+        let pool = test_pool().await;
+
+        // The default fixture pleads no-confusion, so the paragraph is absent.
+        let text = pdf_text(&render_reply(&pool).await);
+        assert!(
+            !text.contains("acquired distinctiveness"),
+            "the prior-use paragraph was printed on a reply that does not plead it:\n{text}"
+        );
+
+        let mut values = reply_values();
+        values.insert("GROUNDS".into(), FieldValue::from("PriorUse"));
+        values.insert("FIRST_USE_DATE".into(), FieldValue::from("2019-04-01"));
+        let text = pdf_text(&render_reply_with(&pool, values).await);
+
+        assert!(
+            text.contains("acquired distinctiveness"),
+            "the prior-use paragraph is missing from a reply that pleads it:\n{text}"
+        );
+        // The date it cites is an inputOnly field — the paragraph is the only
+        // thing that prints it, so a blank here means the two came apart.
+        assert!(text.contains("2019-04-01"), "the date of first use is not on the page:\n{text}");
+        assert!(text.contains("PETALVEDA"), "the mark is not in the paragraph:\n{text}");
     }
 }

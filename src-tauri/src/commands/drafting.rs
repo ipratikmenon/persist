@@ -189,9 +189,25 @@ pub async fn render_document(
         .await
         .map_err(|e| e.to_string())?;
 
+    // Computed fields that carry their own template in the manifest — a
+    // paragraph a document prints only under some condition. Bound before the
+    // firm's identity so that a template could not shadow it, and after the
+    // form values so an empty string does not win.
+    let declared: HashMap<String, Field> = manifest
+        .fields
+        .iter()
+        .filter_map(|spec| {
+            templates::assemble_computed(&manifest, spec, &input.values)
+                .map(|block| (spec.key.clone(), block))
+        })
+        .collect();
+
     // The list printed in the notice and the pages appended after it, from one
     // source. `with_computed` overrides anything Deck sent under these keys.
-    let mut fields = with_computed(to_latex_fields(&manifest, &input.values), firm);
+    let mut fields = with_computed(
+        with_computed(to_latex_fields(&manifest, &input.values), declared),
+        firm,
+    );
     if takes_annexures {
         fields = with_computed(
             fields,
@@ -582,7 +598,7 @@ mod tests {
     /// manifest calls computed.
     #[test]
     fn a_value_sent_for_a_computed_field_is_still_escaped() {
-        let m = manifest(vec![spec("BLOCK", FieldKind::Computed)]);
+        let m = manifest(vec![spec("BLOCK", FieldKind::Computed { template: None })]);
 
         let fields = to_latex_fields(&m, &values(&[("BLOCK", r"\input{/etc/passwd}")]));
         assert_eq!(fields["BLOCK"], Field::text(r"\input{/etc/passwd}"));
@@ -610,7 +626,7 @@ mod tests {
         let mut grounds = spec("GROUNDS", FieldKind::Text { max_length: None });
         grounds.input_only = true;
 
-        let m = manifest(vec![grounds, spec("BLOCK", FieldKind::Computed)]);
+        let m = manifest(vec![grounds, spec("BLOCK", FieldKind::Computed { template: None })]);
 
         let fields = to_latex_fields(&m, &values(&[("GROUNDS", "PriorUse")]));
         assert!(!fields.contains_key("GROUNDS"));

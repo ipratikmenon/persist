@@ -23,8 +23,56 @@
 > Fill this section at the start of a session. Clear it when done.
 
 **Nothing in progress.** S24 did the letterhead, annexures and page setup. S25
-ran three agents in parallel — margins, repeating groups, and the firm's own
-identity — and merged all three. On `claude/new-session-dbqe5o`.
+ran three agents in parallel and merged all three. S26 closed the last of the
+blank-computed-field defects and found that CI could not have run the page-setup
+font tests at all. On `claude/new-session-dbqe5o`.
+
+### S26 — the reply to the Registry, and a computed field that declares itself
+
+**`tm-examination-reply` had three blank computed fields, not one.** FIRM_NAME
+and FIRM_ADDRESS bound to empty strings, so a filing addressed to the Trade
+Marks Registry went out headed by nothing and signed "For " with the firm's name
+missing after it. PRIOR_USE_BLOCK — the paragraph pleading prior use and
+acquired distinctiveness — was blank as well, so a reply relying on prior use
+simply did not plead it.
+
+**Computed fields can now carry their own template.** `FieldKind::Computed`
+gained an optional `template`: LaTeX in the manifest with `{{KEY}}` for any other
+declared field, rendered by `assemble_computed` with every substituted value
+escaped. Paired with the `shownWhen` that already existed, that is how a document
+gets a conditional paragraph without a Rust change for each one — the paragraph
+and the date it cites are governed by one condition and cannot come apart.
+Hidden assembles to an empty block rather than to nothing, because `render`
+refuses to compile on an unbound placeholder.
+
+The drift check extends to it: a template naming a field the manifest does not
+declare, referring to itself, or containing no placeholders at all (a constant
+belongs in the .tex) is reported against the shipped library.
+
+**Two addresses, deliberately.** `firm_address` came with billing and is the
+block on a tax invoice; the office lines came with the letterhead and are the
+registered office. A firm may legitimately invoice from one and be registered at
+another, so neither is derived from the other — but the office lines stand in
+when the invoice address is unset, so a fresh install does not head a filing
+with nothing.
+
+### ⚠️ CI could not have run the font tests
+
+Page setup offers Times, Palatino, Century Schoolbook and Helvetica by name.
+None of them ships in the packages the workflow installs — the TeX Gyre faces
+come from `fonts-texgyre`, which was not in the list. `poppler-utils` was
+missing too, and every compile test measures its PDF with `pdftotext`,
+`pdfinfo` or `pdffonts`.
+
+So `every_offered_font_can_set_the_rupee` — written specifically because those
+faces drop ₹ silently — would have failed on the runner with "font cannot be
+found", and the tests that read a PDF back would have failed on a missing
+binary. Both packages are now installed by the workflow, and it asserts each
+face resolves and each binary exists before running anything, because a missing
+font is not a skip.
+
+Found because this container lost its toolchain between sessions and had to be
+rebuilt from what the workflow claimed to install.
 
 ### S24 — letterhead, annexures, page setup
 
@@ -560,6 +608,7 @@ HETZNER_SYNC_URL=       # Sync server URL (Phase 2 M5)
 | Apr 17 2026 | S07: Phase 2 M4 Billing — spec written, migration 0006_billing.sql (5 tables), queries/billing.rs (5 tests), commands/billing.rs (13 cmds), lib.rs billing commands registered, tauri.ts billing wrappers, BillingHome/TimeTracker/InvoiceList/FirmSettingsPanel. Also: new spec files placed in specs/ (module-02-docketing, auth-rbac, hpas-integration, module-03-documents updated), PROGRESS.md reconciled | specs/*.md, 0006_billing.sql, queries/billing.rs, commands/billing.rs, pages/Billing/*.tsx | cargo test: 30/30, pnpm build: PASS (467 modules, 457kb) |
 | Apr 19 2026 | S08: Phase 2 M4 Billing UI complete — InvoiceDetail.tsx (back/actions/line items/GST panel/payment modal), InvoiceComposer.tsx (client→matter→entries→fixed-fee→GST type→live totals→create), InvoiceList wired (row click→detail, New Invoice→composer), latex.rs real impl (finds pdflatex, tempdir compile, 3 tests), invoice.tex GST-compliant template, client lookup added to generate_invoice_pdf, tempfile moved to [dependencies] | pages/Billing/InvoiceDetail.tsx, InvoiceComposer.tsx, InvoiceList.tsx, services/latex.rs, storage/templates/invoice.tex, commands/billing.rs, Cargo.toml | cargo test: 33/33, pnpm build: PASS (469 modules, 482kb) |
 | Jul 19 2026 | S09: Expansion roadmap (planning only, no code) — researched adalat.ai + visiocyber.ai; wrote specs/expansion-roadmap.md defining Track A Courtroom Intelligence (M25 transcription, M26 hearings/cause lists, M27 doc digitization, M28 research/summarization, M29 WhatsApp chatbot) and Track B Startup Legal SaaS (M30 Startup Legal OS, M31 DP Audit Engine → Phase 2.5, M32 Compliance & AI Governance, M33 Assessments); added Phases 2.5/8/9 to TASKS.md; 4 architecture decisions logged | specs/expansion-roadmap.md (new), TASKS.md, PROGRESS.md, SESSION-LOG/2026-07-19-S09-expansion-roadmap.md | No code changed — tests unaffected (33/33 as of S08) |
+| Aug 11 2026 | S26: the reply to the Registry, and a computed field that declares itself. **Three blank computed fields on `tm-examination-reply`**, not the one I had flagged: FIRM_NAME and FIRM_ADDRESS bound to empty strings, so a filing to the Trade Marks Registry went out headed by nothing and signed "For " with nothing after it; and PRIOR_USE_BLOCK, the paragraph pleading prior use, was blank too, so a reply relying on prior use did not plead it. **`FieldKind::Computed` gained an optional `template`** — LaTeX in the manifest with `{{KEY}}` for any other declared field, every substituted value escaped, paired with the `shownWhen` that already existed. That is a conditional paragraph without a Rust change per document, and the paragraph and the date it cites cannot come apart. Drift checking extends to it. **CI could not have run the page-setup font tests:** the TeX Gyre faces come from `fonts-texgyre` and `poppler-utils` provides every binary the compile tests measure with — neither was in the workflow, so `every_offered_font_can_set_the_rupee` would have failed on "font cannot be found". Both added, with explicit guards. Found because this container lost its toolchain and had to be rebuilt from what the workflow claimed to install | src-tauri/src/services/{templates,firm}.rs, src-tauri/src/commands/drafting.rs, storage/templates/tm-examination-reply.json, src/lib/ipc-types.ts, .github/workflows/ci.yml | cargo test: 311/311 with PERSIST_REQUIRE_LATEX=1 (was 301), Deck build PASS |
 | Aug 11 2026 | S25: three agents in parallel, all merged. **Margins** — per-side millimetres, flowed through `\applyletterhead` as well as `persist-base`, since that second `\geometry` silently discards the first. **Repeating groups** — `FieldKind::List` + `FieldValue::{Scalar,Rows}`; the manifest declares one row's shape and how it is set, Keel renders it per row with a generated index, every cell escaped. Makes the Legal Notice usable: its numbered sections were a `computed` block nothing filled. **The firm's identity** — migration `0013`, `firm_partners` as its own table, `services/firm.rs`; every letterhead field on the notice previously bound to an empty string, so a rendered notice had a blank letterhead. **The find: validation that never ran.** `rename_all` renames enum *variants*; struct-variant fields need `rename_all_fields`, which was missing — so every `maxWords`/`maxLength`/`notBefore` in the shipped library parsed to `None`. Clean parse, no warning, and the examination reply's 1500-word registry limit had never been enforced. **Merge note:** git auto-merged all three worktrees without conflict and the result did not compile — repeating groups changed the value type under the firm resolver. Resolved by hand | src-tauri/src/services/{templates,firm (new),layout}.rs, src-tauri/src/db/migrations/0013_firm_letterhead.sql (new), src-tauri/src/db/{SCHEMA.md,queries/billing.rs,mod.rs}, src-tauri/src/commands/{drafting,billing}.rs, storage/templates/{legal-notice.{tex,json},_shared/persist-{base,letterhead}.tex}, src/components/drafting/{FormField,PageSetup}.tsx, src/pages/{Drafting/SmartForm,Billing/FirmSettingsPanel}.tsx, src/lib/ipc-types.ts, screenshots/* | cargo test: 301/301 (was 238), Deck build PASS, 22 screenshots |
 | Aug 11 2026 | S24: Letterhead alignment, annexures, and page setup. **Alignment:** partner blocks set their own leading on top of the font's, the mark was top-aligned against a block it should have been centred against, the rule ran full width; `includehead`/`includefoot` so the bands are not pinned to the paper edge. Measured off 150dpi crops, not guessed. **Annexures:** `_shared/persist-annexures.tex`, `services/annexures.rs` (marks A/B/C from the attorney's order; printed list and appended pages from one `Vec`; type sniffed from bytes), `latex::Attachment` + `compile_with` (staged into the compile directory, names refused unless `[a-z0-9._-]`, compile dir on TEXINPUTS), `stage_annexure`/`discard_annexure` (OS dialog → Keel reads, checks, strips metadata, holds for the session), Deck picker whose marks come back from Keel. An annexure page carries the document and its mark and nothing else. **Page setup — `services/layout.rs`:** paper (A4/Legal), typeface, size, line spacing, bold/italic, four page-number forms plus a starting number, and letterhead on every page / first only / named pages / none. Not template fields — compiled to a `persist-layout.tex` staged beside the template. `first page only` sets the letterhead as body content rather than a running head, because `\headheight` is one value for the document and a running head would leave every continuation sheet a 4cm blank band. **Three faults found by measuring, not reading:** only the Noto faces carry ₹, so every Times/Palatino/Schoolbook option dropped it silently (now routed through a Noto fallback via `newunicodechar`); `keyval` does not expand a macro in key position, so `\geometry{\persistpaper}` silently matched nothing and Legal came out A4; and `\newgeometry` re-derives paper from the class options, so it came out A4 again even after that was fixed. **Two negative controls** on the annexure mark and on TEXINPUTS staging, both verified to fail on the broken version. One claim I had written into a template was disproved by its own control and corrected | src-tauri/storage/templates/_shared/{persist-annexures.tex (new),persist-base.tex,persist-letterhead.tex}, storage/templates/legal-notice.{tex,json}, src-tauri/src/services/{annexures.rs (new),layout.rs (new),latex.rs,mod.rs}, src-tauri/src/commands/drafting.rs, src-tauri/src/lib.rs, src/components/drafting/{AnnexureList,PageSetup}.tsx (new), src/pages/Drafting/SmartForm.tsx, src/lib/{ipc-types,tauri}.ts | cargo test: 238/238 (was 204), Deck build PASS |
 | Aug 11 2026 | S23: Firm letterhead + Legal Notice. `_shared/persist-letterhead.tex` — the firm's mark (logo extracted from a real notice), both partners with designation, phone and email, the registered-office footer and `Page N of M` via `lastpage`, applied to every page because a notice is served page by page. Correspondence macros: `\noticebanner`, `\noticedate`, `\noticesubject`, `\noticesection`, `noticebody`. `legal-notice.{tex,json}` follows the firm's house format — addressee block, mode of service, without-prejudice marker, subject, instruction paragraph, numbered sections, closing, signature block with enrolment numbers, annexures. Compiles clean against the letterhead; header band measured rather than guessed after the partner block printed over the body twice | src-tauri/storage/templates/{_shared/persist-letterhead.tex,_shared/assets/persistas-logo.png,legal-notice.tex,legal-notice.json}, src-tauri/src/services/latex.rs | cargo test: 204/204 (was 203) |

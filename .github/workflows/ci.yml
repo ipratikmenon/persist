@@ -43,10 +43,22 @@ jobs:
         run: |
           sudo apt-get install -y --no-install-recommends \
             texlive-latex-base texlive-latex-recommended texlive-latex-extra \
-            texlive-fonts-recommended texlive-xetex fonts-noto-core
+            texlive-fonts-recommended texlive-xetex fonts-noto-core \
+            fonts-texgyre poppler-utils
           xelatex --version | head -1
           fc-list :charset=20B9 family | grep -q "Noto Serif" \
             || { echo "::error::Noto Serif lacks the rupee glyph"; exit 1; }
+          # Page setup offers these by name (services/layout.rs). A missing one
+          # is not a skip — the compile fails with "font cannot be found", which
+          # is how it was found: the runner had Noto and nothing else.
+          for face in "TeX Gyre Termes" "TeX Gyre Pagella" "TeX Gyre Schola" "TeX Gyre Heros"; do
+            fc-list : family | tr ',' '\n' | grep -qx "$face" \
+              || { echo "::error::$face is not installed; page setup offers it"; exit 1; }
+          done
+          # pdftotext, pdfinfo and pdffonts — the compile tests measure the PDF
+          # rather than trusting that the engine exited zero.
+          command -v pdftotext >/dev/null && command -v pdffonts >/dev/null \
+            || { echo "::error::poppler-utils is needed to read compiled PDFs back"; exit 1; }
 
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
