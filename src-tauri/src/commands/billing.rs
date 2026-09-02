@@ -3,6 +3,7 @@
 // All monetary values in INR. GST calculated here — never in Deck.
 
 use crate::AppState;
+use crate::services::money;
 use crate::services::sync_engine::{self, EntityType, Op};
 use crate::db::queries::billing as bq;
 use uuid::Uuid;
@@ -724,15 +725,15 @@ pub async fn generate_invoice_pdf(
         let code = latex::escape(li.activity_code.as_deref().unwrap_or(""));
         format!("{} & {} & {} & ₹{} & ₹{} \\\\",
             code, latex::escape(&li.description), hrs,
-            format_inr(li.rate), format_inr(li.amount))
+            money::format_inr(li.rate), money::format_inr(li.amount))
     }).collect::<Vec<_>>().join("\n");
     fields.insert("LINE_ITEMS_TABLE".into(), Field::raw(table_rows));
 
-    fields.insert("SUBTOTAL".into(),        Field::text(format_inr(inv.subtotal)));
-    fields.insert("CGST_AMOUNT".into(),     Field::text(format_inr(inv.cgst_amount)));
-    fields.insert("SGST_AMOUNT".into(),     Field::text(format_inr(inv.sgst_amount)));
-    fields.insert("IGST_AMOUNT".into(),     Field::text(format_inr(inv.igst_amount)));
-    fields.insert("TOTAL".into(),           Field::text(format_inr(inv.total_with_tax)));
+    fields.insert("SUBTOTAL".into(),        Field::text(money::format_inr(inv.subtotal)));
+    fields.insert("CGST_AMOUNT".into(),     Field::text(money::format_inr(inv.cgst_amount)));
+    fields.insert("SGST_AMOUNT".into(),     Field::text(money::format_inr(inv.sgst_amount)));
+    fields.insert("IGST_AMOUNT".into(),     Field::text(money::format_inr(inv.igst_amount)));
+    fields.insert("TOTAL".into(),           Field::text(money::format_inr(inv.total_with_tax)));
     fields.insert("AMOUNT_IN_WORDS".into(), Field::text(amount_in_words(inv.total_with_tax)));
     fields.insert("NOTES".into(),           Field::text(inv.notes.clone().unwrap_or_default()));
     fields.insert("SAC_CODE".into(),        Field::text("998212"));
@@ -800,33 +801,6 @@ pub async fn generate_invoice_pdf(
 // Helpers for generate_invoice_pdf
 // ---------------------------------------------------------------------------
 
-/// Format an amount with Indian digit grouping: 600000.0 → "6,00,000.00".
-///
-/// Three digits, then twos — the lakh/crore convention, not the Western
-/// thousands one. `amount_in_words` already speaks in lakhs, so a figure
-/// grouped as "600,000.00" beside the words "Six Lakh" reads as a mistake on a
-/// GST invoice.
-fn format_inr(amount: f64) -> String {
-    let negative = amount < 0.0;
-    let text = format!("{:.2}", amount.abs());
-    let (whole, fraction) = text.split_once('.').unwrap_or((text.as_str(), "00"));
-
-    let grouped = if whole.len() <= 3 {
-        whole.to_owned()
-    } else {
-        let (lead, last_three) = whole.split_at(whole.len() - 3);
-        // The leading part is grouped in twos, read from the right.
-        let mut pairs: Vec<String> = lead
-            .as_bytes()
-            .rchunks(2)
-            .map(|c| String::from_utf8_lossy(c).into_owned())
-            .collect();
-        pairs.reverse();
-        format!("{},{last_three}", pairs.join(","))
-    };
-
-    format!("{}{grouped}.{fraction}", if negative { "-" } else { "" })
-}
 
 /// Convert a monetary amount to Indian-style words (INR).
 /// e.g. 11800.50 → "Rupees Eleven Thousand Eight Hundred and Fifty Paise Only"
@@ -888,46 +862,7 @@ fn num_in_words(n: u64) -> String {
 mod tests {
     use super::*;
 
-    /// Indian grouping is three digits then twos, not Western thousands.
-    /// The invoice prints these next to `amount_in_words`, which already says
-    /// "Lakh" — grouped the Western way the two read as contradicting each other.
-    #[test]
-    fn amounts_use_indian_digit_grouping() {
-        assert_eq!(format_inr(0.0),         "0.00");
-        assert_eq!(format_inr(999.5),       "999.50");
-        assert_eq!(format_inr(1_000.0),     "1,000.00");
-        assert_eq!(format_inr(23_600.0),    "23,600.00");
-        assert_eq!(format_inr(100_000.0),   "1,00,000.00");
-        assert_eq!(format_inr(600_000.0),   "6,00,000.00");
-        assert_eq!(format_inr(1_234_567.0), "12,34,567.00");
-        // One crore.
-        assert_eq!(format_inr(10_000_000.0), "1,00,00,000.00");
-    }
 
-    #[test]
-    fn a_credit_keeps_its_sign() {
-        assert_eq!(format_inr(-5_00_000.0), "-5,00,000.00");
-    }
 
-    #[test]
-    fn paise_are_always_shown() {
-        // A GST invoice states paise even when they are zero.
-        assert_eq!(format_inr(8_000.0),  "8,000.00");
-        assert_eq!(format_inr(8_000.05), "8,000.05");
-        assert_eq!(format_inr(8_000.5),  "8,000.50");
-    }
 
-    /// Grouping is presentation only. It must never disagree with the figure
-    /// the invoice was calculated from.
-    #[test]
-    fn grouping_does_not_change_the_value() {
-        for amount in [0.0_f64, 1.0, 999.99, 1_00_000.0, 82_600.01, 1_23_45_678.9] {
-            let stripped: String = format_inr(amount).chars().filter(|c| *c != ',').collect();
-            assert_eq!(
-                stripped,
-                format!("{amount:.2}"),
-                "grouping altered the amount {amount}"
-            );
-        }
-    }
 }

@@ -236,6 +236,77 @@
       "help": "The numbered paragraphs of the notice, in the order they are served. Numbering follows the order — moving a section renumbers the rest."
     },
     {
+      "key": "PAYMENTS_BLOCK",
+      "label": "Payments made",
+      "kind": {
+        "type": "list",
+        "itemLabel": "Add a payment",
+        "itemFields": [
+          {
+            "key": "DATE",
+            "label": "Date paid",
+            "kind": {
+              "type": "date"
+            }
+          },
+          {
+            "key": "AMOUNT",
+            "label": "Amount",
+            "kind": {
+              "type": "number",
+              "min": 1
+            },
+            "help": "In rupees. The total demanded is added up from these."
+          },
+          {
+            "key": "MODE",
+            "label": "Paid by",
+            "kind": {
+              "type": "select",
+              "options": [
+                {
+                  "value": "UPI",
+                  "label": "UPI"
+                },
+                {
+                  "value": "Bank transfer",
+                  "label": "Bank transfer (NEFT/RTGS/IMPS)"
+                },
+                {
+                  "value": "Cheque",
+                  "label": "Cheque"
+                },
+                {
+                  "value": "Cash",
+                  "label": "Cash"
+                },
+                {
+                  "value": "Card",
+                  "label": "Card"
+                }
+              ]
+            }
+          },
+          {
+            "key": "REFERENCE",
+            "label": "Reference",
+            "kind": {
+              "type": "text",
+              "maxLength": 80
+            },
+            "required": false,
+            "help": "UTR, cheque number or the annexure the proof is at."
+          }
+        ],
+        "itemTemplate": "\\paymentrow{{{INDEX}}}{{{DATE}}}{{{AMOUNT}}}{{{MODE}}}{{{REFERENCE}}}\n",
+        "minItems": 0,
+        "maxItems": 40,
+        "blockTemplate": "\\begin{paymentschedule}\n{{ROWS}}\\end{paymentschedule}\n\\paymenttotal{{{TOTAL}}}\n",
+        "totalOf": "AMOUNT"
+      },
+      "required": false
+    },
+    {
       "key": "SIGNATORY_BLOCK",
       "label": "Signatory Block",
       "kind": {

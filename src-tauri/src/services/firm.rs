@@ -34,6 +34,7 @@
 
 use crate::db::queries::billing::{self as bq, FirmPartnerRow};
 use crate::services::latex::{self, Field};
+use crate::services::dates;
 use crate::services::templates::{FieldKind, FieldValue, TemplateManifest};
 use crate::SessionData;
 use anyhow::{bail, Result};
@@ -131,36 +132,10 @@ pub fn notice_date(date: NaiveDate) -> Field {
     Field::raw(format!(
         "{}\\textsuperscript{{{}}} {} {}",
         date.day(),
-        ordinal_suffix(date.day()),
-        month_name(date.month()),
+        dates::ordinal_suffix(date.day()),
+        dates::month_name(date.month()),
         date.year()
     ))
-}
-
-/// The English ordinal suffix for a day of the month.
-///
-/// The teens are the whole difficulty: 11, 12 and 13 take "th" even though they
-/// end in 1, 2 and 3. A rule written only on the last digit prints "11st".
-fn ordinal_suffix(day: u32) -> &'static str {
-    match (day % 100, day % 10) {
-        (11..=13, _) => "th",
-        (_, 1) => "st",
-        (_, 2) => "nd",
-        (_, 3) => "rd",
-        _ => "th",
-    }
-}
-
-/// Month names in full, as correspondence sets them.
-///
-/// Spelled out here rather than taken from chrono's `%B` formatting, which is
-/// locale-independent today but is a formatting concern rather than a promise.
-fn month_name(month: u32) -> &'static str {
-    const MONTHS: [&str; 12] = [
-        "January", "February", "March", "April", "May", "June",
-        "July", "August", "September", "October", "November", "December",
-    ];
-    MONTHS.get((month as usize).saturating_sub(1)).copied().unwrap_or("")
 }
 
 // ---------------------------------------------------------------------------
@@ -715,6 +690,9 @@ mod compile_tests {
                  \\end{noticebody}\n",
             ),
         );
+        // A notice with no schedule of payments. The placeholder still has to
+        // be bound: `render` refuses to compile on an unfilled one.
+        fields.insert("PAYMENTS_BLOCK".into(), Field::raw(""));
         fields.insert("ANNEXURES_BLOCK".into(), Field::raw(""));
         fields.insert("ANNEXURE_PAGES".into(), Field::raw(""));
 

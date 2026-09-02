@@ -184,6 +184,24 @@ pub enum FieldKind {
         /// row's values — every one of them goes through `latex::escape` on its
         /// way in, so a heading an attorney typed cannot become markup.
         item_template: String,
+        /// How the rows are wrapped, once, when there is at least one.
+        ///
+        /// `{{ROWS}}` is where they go. A table needs its header row exactly
+        /// once, not once per row, and a list with no rows must print nothing
+        /// at all — an empty schedule with column headings over it says the
+        /// notice has a schedule and forgot to fill it in.
+        ///
+        /// `{{TOTAL}}` is the sum of `totalOf`, if one is named.
+        #[serde(default)]
+        block_template: Option<String>,
+        /// Which item field to total for `{{TOTAL}}`. It must be a `number`.
+        ///
+        /// Derived rather than typed. A demand notice that states a sum and
+        /// then schedules the payments making it up has said the same thing
+        /// twice, and the day the two disagree is the day the notice is worth
+        /// arguing about.
+        #[serde(default)]
+        total_of: Option<String>,
         /// Fewest rows the document makes sense with. A notice with no numbered
         /// sections is a letterhead and a signature.
         #[serde(default)]
@@ -580,24 +598,75 @@ fn check_value<'v>(
 /// An empty list assembles to an empty block rather than to nothing, because
 /// `latex::render` refuses to compile a template with an unfilled placeholder —
 /// a notice with no numbered sections must still bind `{{SECTIONS_BLOCK}}`.
+/// A figure grouped the Indian way, or the text as typed if it is not a number.
+///
+/// Not an error: `validate` is where a required amount that is not a number is
+/// refused, and reformatting is no place to decide a document cannot be built.
+fn as_money(raw: &str) -> String {
+    match raw.trim().parse::<f64>() {
+        Ok(amount) => super::money::format_inr(amount),
+        Err(_) => raw.to_owned(),
+    }
+}
+
 pub fn assemble(spec: &FieldSpec, rows: &[Row]) -> Field {
-    let FieldKind::List { item_fields, item_template, .. } = &spec.kind else {
+    let FieldKind::List { item_fields, item_template, block_template, total_of, .. } = &spec.kind
+    else {
         return Field::raw(String::new());
     };
+
+    // No rows means nothing at all — not an empty table, and not a total of
+    // zero under one.
+    if rows.is_empty() {
+        return Field::raw(String::new());
+    }
 
     let mut out = String::new();
     for (index, row) in rows.iter().enumerate() {
         let mut block = item_template.replace("{{INDEX}}", &(index + 1).to_string());
         for item in item_fields {
             let value = row.get(&item.key).map(String::as_str).unwrap_or("");
-            block = block.replace(&format!("{{{{{}}}}}", item.key), &latex::escape(value));
+            // The column being totalled is money by definition, so it is set as
+            // money. Otherwise a schedule shows "85000" in a row and
+            // "1,04,000.00" in the total under it, and the document looks like
+            // it is quoting two different figures.
+            // A cell is set according to what the manifest says it is. The
+            // column being totalled is money by definition, and a `date` cell
+            // holds an ISO string that no legal document prints as it stands.
+            // Otherwise a schedule shows "85000" in a row and "1,04,000.00" in
+            // the total under it, and reads its dates like a spreadsheet.
+            let text = match (&total_of, &item.kind) {
+                (Some(column), _) if **column == item.key => as_money(value),
+                (_, FieldKind::Date { .. }) => {
+                    super::dates::long_date_from_iso(value).unwrap_or_else(|| value.to_owned())
+                }
+                _ => value.to_owned(),
+            };
+            block = block.replace(&format!("{{{{{}}}}}", item.key), &latex::escape(&text));
         }
         // A key in the row that the manifest does not declare is dropped here
         // rather than printed: Deck cannot add a column to a document by
         // inventing one.
         out.push_str(&block);
     }
-    Field::raw(out)
+
+    let Some(wrapper) = block_template else {
+        return Field::raw(out);
+    };
+
+    let mut block = wrapper.replace("{{ROWS}}", &out);
+    if let Some(column) = total_of {
+        // A row whose amount is blank or unparseable contributes nothing.
+        // `validate` has already refused the document if that cell was
+        // required, and failing here would be a compile error the attorney
+        // could do nothing about.
+        let total: f64 = rows
+            .iter()
+            .filter_map(|row| row.get(column)?.trim().parse::<f64>().ok())
+            .sum();
+        block = block.replace("{{TOTAL}}", &latex::escape(&super::money::format_inr(total)));
+    }
+    Field::raw(block)
 }
 
 /// Render a computed field that carries its own template.
@@ -738,6 +807,7 @@ pub fn check_against_template(manifest: &TemplateManifest, tex_source: &str) -> 
 
     for spec in &manifest.fields {
         problems.extend(check_list_shape(spec));
+        problems.extend(check_block_shape(spec));
         problems.extend(check_computed_shape(spec, &declared));
     }
 
@@ -758,6 +828,50 @@ pub fn check_against_template(manifest: &TemplateManifest, tex_source: &str) -> 
 /// The same drift a list's `itemTemplate` can have: a paragraph that prints
 /// `{{FIRST_USE_DATE}}` while nothing declares that key produces a document with
 /// a literal `{{FIRST_USE_DATE}}` on it, addressed to a registry.
+/// A list's block template and its total, checked against the row it wraps.
+///
+/// Both failures are silent otherwise: a wrapper with no `{{ROWS}}` drops every
+/// row from the document, and a total naming a column that is not a number
+/// prints zero — a notice demanding nothing, with nothing to say it went wrong.
+fn check_block_shape(spec: &FieldSpec) -> Vec<String> {
+    let FieldKind::List { item_fields, block_template, total_of, .. } = &spec.kind else {
+        return Vec::new();
+    };
+
+    let key = &spec.key;
+    let mut problems = Vec::new();
+
+    if let Some(wrapper) = block_template {
+        if !wrapper.contains("{{ROWS}}") {
+            problems.push(format!(
+                "{key}'s blockTemplate has no {{{{ROWS}}}} — every row would be dropped"
+            ));
+        }
+        if wrapper.contains("{{TOTAL}}") && total_of.is_none() {
+            problems.push(format!("{key}'s blockTemplate uses {{{{TOTAL}}}} but names no totalOf"));
+        }
+    }
+
+    if let Some(column) = total_of {
+        if block_template.as_deref().map(|w| !w.contains("{{TOTAL}}")).unwrap_or(true) {
+            problems.push(format!(
+                "{key} totals {column} but nothing prints {{{{TOTAL}}}}"
+            ));
+        }
+        match item_fields.iter().find(|f| f.key == *column) {
+            None => problems.push(format!(
+                "{key} totals {column}, which the row does not have"
+            )),
+            Some(field) if !matches!(field.kind, FieldKind::Number { .. }) => problems.push(
+                format!("{key} totals {column}, which is not a number — the total would be zero"),
+            ),
+            Some(_) => {}
+        }
+    }
+
+    problems
+}
+
 fn check_computed_shape(spec: &FieldSpec, declared: &std::collections::HashSet<&str>) -> Vec<String> {
     let FieldKind::Computed { template: Some(template) } = &spec.kind else {
         return Vec::new();
@@ -909,6 +1023,8 @@ mod tests {
         let mut list = spec(
             key,
             FieldKind::List {
+                block_template: None,
+                total_of: None,
                 item_fields: vec![heading, body],
                 item_label: "Add a section".into(),
                 item_template:
@@ -1233,6 +1349,8 @@ mod tests {
         let mut list = spec(
             "PAYMENTS",
             FieldKind::List {
+                block_template: None,
+                total_of: None,
                 item_fields: vec![amount, paid],
                 item_label: "Add a payment".into(),
                 item_template: "{{INDEX}} & {{AMOUNT}} & {{PAID_ON}}".into(),
@@ -1271,6 +1389,8 @@ mod tests {
         let mut list = spec(
             "PERIODS",
             FieldKind::List {
+                block_template: None,
+                total_of: None,
                 item_fields: vec![from, to],
                 item_label: "Add a period".into(),
                 item_template: "{{INDEX}} {{FROM}} {{TO}}".into(),
@@ -1508,6 +1628,8 @@ mod tests {
         let mut outer = spec(
             "OUTER",
             FieldKind::List {
+                block_template: None,
+                total_of: None,
                 item_fields: vec![inner],
                 item_label: "Add".into(),
                 item_template: "{{INDEX}} {{INNER}}".into(),
@@ -1530,6 +1652,8 @@ mod tests {
         let mut list = spec(
             "ROWS",
             FieldKind::List {
+                block_template: None,
+                total_of: None,
                 item_fields: vec![computed],
                 item_label: "Add".into(),
                 item_template: "{{INDEX}} {{TOTAL}}".into(),
@@ -1556,6 +1680,130 @@ mod tests {
     fn a_well_formed_list_reports_nothing() {
         let list = list_spec("SECTIONS", Some(1), Some(20));
         assert!(check_against_template(&manifest(vec![list]), "{{SECTIONS}}").is_empty());
+    }
+
+
+    // ── A wrapped list, and its total ───────────────────────────────────────
+
+    fn payments_spec() -> FieldSpec {
+        let mut date = spec("DATE", FieldKind::Date { not_before: None });
+        date.label = "Date paid".into();
+        let mut amount = spec("AMOUNT", FieldKind::Number { min: Some(1.0), max: None });
+        amount.label = "Amount".into();
+
+        let mut list = spec(
+            "PAYMENTS",
+            FieldKind::List {
+                block_template: Some(
+                    "\\begin{paymentschedule}\n{{ROWS}}\\end{paymentschedule}\n\\paymenttotal{{{TOTAL}}}\n"
+                        .into(),
+                ),
+                total_of: Some("AMOUNT".into()),
+                item_fields: vec![date, amount],
+                item_label: "Add a payment".into(),
+                item_template: "\\paymentrow{{{INDEX}}}{{{DATE}}}{{{AMOUNT}}}\n".into(),
+                min_items: None,
+                max_items: None,
+            },
+        );
+        list.label = "Payments made".into();
+        list
+    }
+
+    fn payment(date: &str, amount: &str) -> Row {
+        [("DATE".to_owned(), date.to_owned()), ("AMOUNT".to_owned(), amount.to_owned())]
+            .into_iter()
+            .collect()
+    }
+
+    #[test]
+    fn a_wrapped_list_gets_its_wrapper_once_and_its_rows_inside() {
+        let out = assemble(
+            &payments_spec(),
+            &[payment("2026-02-11", "7000"), payment("2026-03-04", "12000")],
+        );
+        let out = out.as_str();
+
+        assert_eq!(out.matches("begin{paymentschedule}").count(), 1, "{out}");
+        assert_eq!(out.matches("paymentrow").count(), 2, "{out}");
+        let table = out.find("begin{paymentschedule}").unwrap();
+        let first = out.find("paymentrow").unwrap();
+        assert!(table < first, "the rows escaped the table: {out}");
+    }
+
+    /// The figure is added up from the rows, so a notice cannot demand a sum
+    /// its own schedule does not come to.
+    #[test]
+    fn the_total_is_summed_from_the_rows_and_grouped_the_indian_way() {
+        let out = assemble(
+            &payments_spec(),
+            &[
+                payment("2026-02-11", "7000"),
+                payment("2026-03-04", "12000"),
+                payment("2026-04-19", "85000"),
+            ],
+        );
+        assert!(out.as_str().contains("1,04,000.00"), "{}", out.as_str());
+    }
+
+    /// No payments means no table and no total — not column headings over
+    /// blank paper with "Total paid: 0.00" under them.
+    #[test]
+    fn a_list_with_no_rows_prints_nothing_at_all() {
+        assert_eq!(assemble(&payments_spec(), &[]).as_str(), "");
+    }
+
+    /// A cell the attorney left blank contributes nothing rather than failing
+    /// the compile — `validate` is where a missing required amount is refused.
+    #[test]
+    fn a_row_with_an_unparseable_amount_does_not_break_the_total() {
+        let out = assemble(
+            &payments_spec(),
+            &[payment("2026-02-11", "7000"), payment("2026-03-04", "")],
+        );
+        assert!(out.as_str().contains("7,000.00"), "{}", out.as_str());
+    }
+
+    #[test]
+    fn a_wrapper_that_would_drop_every_row_is_drift() {
+        let mut list = payments_spec();
+        if let FieldKind::List { block_template, .. } = &mut list.kind {
+            *block_template = Some("\\begin{paymentschedule}\\end{paymentschedule}".into());
+        }
+        assert!(
+            check_against_template(&manifest(vec![list]), "{{PAYMENTS}}")
+                .iter()
+                .any(|p| p.contains("every row would be dropped")),
+            "a wrapper with no ROWS was not reported"
+        );
+    }
+
+    #[test]
+    fn totalling_a_column_that_is_not_a_number_is_drift() {
+        let mut list = payments_spec();
+        if let FieldKind::List { total_of, .. } = &mut list.kind {
+            *total_of = Some("DATE".into());
+        }
+        assert!(
+            check_against_template(&manifest(vec![list]), "{{PAYMENTS}}")
+                .iter()
+                .any(|p| p.contains("not a number")),
+            "a total of dates was not reported"
+        );
+    }
+
+    #[test]
+    fn totalling_a_column_the_row_does_not_have_is_drift() {
+        let mut list = payments_spec();
+        if let FieldKind::List { total_of, .. } = &mut list.kind {
+            *total_of = Some("PRINCIPAL".into());
+        }
+        assert!(
+            check_against_template(&manifest(vec![list]), "{{PAYMENTS}}")
+                .iter()
+                .any(|p| p.contains("the row does not have")),
+            "a total of a column that does not exist was not reported"
+        );
     }
 
     // ── Computed fields that carry their own template ───────────────────────
@@ -1876,17 +2124,80 @@ mod compile_tests {
     }
 
     async fn compile_notice(rows: &[Row]) -> Vec<u8> {
+        compile_notice_with(rows, &[]).await
+    }
+
+    /// Payments, as an attorney would enter the tranches of a part payment.
+    fn payment_rows() -> Vec<Row> {
+        [("2026-02-11", "7000", "UPI", "UTR 418223901"),
+         ("2026-03-04", "12000", "Bank transfer", "NEFT 55120"),
+         ("2026-04-19", "85000", "Cheque", "No. 004417")]
+            .into_iter()
+            .map(|(date, amount, mode, reference)| {
+                [
+                    ("DATE".to_owned(), date.to_owned()),
+                    ("AMOUNT".to_owned(), amount.to_owned()),
+                    ("MODE".to_owned(), mode.to_owned()),
+                    ("REFERENCE".to_owned(), reference.to_owned()),
+                ]
+                .into_iter()
+                .collect()
+            })
+            .collect()
+    }
+
+    async fn compile_notice_with(rows: &[Row], payments: &[Row]) -> Vec<u8> {
         let dir = latex::templates_dir().expect("templates directory");
         let manifest = get(&dir, "legal-notice").expect("the notice manifest must load");
         let sections =
             manifest.fields.iter().find(|f| f.key == "SECTIONS_BLOCK").expect("SECTIONS_BLOCK");
+        let schedule =
+            manifest.fields.iter().find(|f| f.key == "PAYMENTS_BLOCK").expect("PAYMENTS_BLOCK");
 
         let mut fields = notice_fields(&manifest);
         fields.insert("SECTIONS_BLOCK".into(), assemble(sections, rows));
+        fields.insert("PAYMENTS_BLOCK".into(), assemble(schedule, payments));
 
         latex::compile("legal-notice", &fields, CompileMode::Final)
             .await
             .expect("the notice must compile")
+    }
+
+    /// The schedule of payments, on the page, with the demand added up from it.
+    ///
+    /// The figure is the one thing on a demand notice that must not be typed
+    /// twice — a notice claiming a sum its own schedule does not come to is a
+    /// notice worth arguing about.
+    #[tokio::test]
+    async fn a_notice_carries_its_schedule_of_payments_and_totals_it() {
+        if !latex::engine_available() {
+            return;
+        }
+
+        let text = pdf_text(&compile_notice_with(&three_sections(), &payment_rows()).await);
+
+        for expected in
+            ["11 February 2026", "7,000.00", "12,000.00", "UPI", "UTR 418223901", "No. 004417"]
+        {
+            assert!(text.contains(expected), "{expected} is not in the schedule:\n{text}");
+        }
+        // 7,000 + 12,000 + 85,000, grouped the Indian way, and nowhere typed.
+        assert!(text.contains("1,04,000.00"), "the total is wrong or missing:\n{text}");
+    }
+
+    /// A notice that is not about money prints no schedule — not an empty table
+    /// with a total of zero under it.
+    #[tokio::test]
+    async fn a_notice_with_no_payments_prints_no_schedule() {
+        if !latex::engine_available() {
+            return;
+        }
+
+        let text = pdf_text(&compile_notice_with(&three_sections(), &[]).await);
+
+        assert!(!text.contains("Total paid"), "an empty schedule was printed:\n{text}");
+        assert!(!text.contains("Amount"), "the column headings were printed:\n{text}");
+        assert!(text.contains("Yours Sincerely"), "the notice itself is missing:\n{text}");
     }
 
     /// The whole point of the change: an attorney adds three sections and the

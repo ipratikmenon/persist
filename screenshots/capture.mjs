@@ -7,7 +7,23 @@
 // screenshots/out/. Fixtures come from screenshots/mock/core.ts — the real app
 // talks to Keel over Tauri IPC, which does not exist in a browser.
 
-import { chromium } from '/tmp/shotkit/node_modules/playwright/index.mjs';
+// Playwright is not a dependency of the app — it is only ever used here, and
+// pulling it into package.json would put a browser driver in the desktop
+// build's lockfile. It lives in a scratch install instead, which means this
+// path can go missing when a machine is rebuilt:
+//
+//   mkdir -p /tmp/shotkit && cd /tmp/shotkit \
+//     && PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm i playwright
+//
+// The browsers themselves are already on the image at PLAYWRIGHT_BROWSERS_PATH.
+const { chromium } = await import('/tmp/shotkit/node_modules/playwright/index.mjs').catch(() => {
+  console.error(
+    'Playwright is not installed. Run:\n' +
+      '  mkdir -p /tmp/shotkit && cd /tmp/shotkit && ' +
+      'PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm i playwright',
+  );
+  process.exit(1);
+});
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -38,7 +54,11 @@ await new Promise(r => server.listen(PORT, r));
 fs.mkdirSync(OUT, { recursive: true });
 
 const browser = await chromium.launch({
-  executablePath: '/opt/pw-browsers/chromium-1194/chrome-linux/chrome',
+  // The versioned directory changes when the image's Playwright does; the
+  // unversioned one is the image's stable alias.
+  executablePath: fs.existsSync('/opt/pw-browsers/chromium-1194/chrome-linux/chrome')
+    ? '/opt/pw-browsers/chromium-1194/chrome-linux/chrome'
+    : '/opt/pw-browsers/chromium/chrome-linux/chrome',
   args: ['--force-color-profile=srgb', '--font-render-hinting=none'],
 });
 const page = await browser.newPage({
@@ -286,6 +306,34 @@ await shot('22-repeating-sections', NOTICE, {
     await addSections(p, SECTIONS.slice(2));
     await p.locator('label[for="SECTIONS_BLOCK"]').scrollIntoViewIfNeeded();
     // Past the debounce, so the preview beside it carries the sections.
+    await p.waitForTimeout(1800);
+  },
+});
+
+// The schedule of payments: three tranches entered, and a total the attorney
+// never typed.
+await shot('23-payment-schedule', NOTICE, {
+  setup: async (p) => {
+    await fillNotice(p);
+    // A section, so the preview beside the schedule is a real notice rather
+    // than the "fill the required fields" placeholder.
+    await addSections(p, SECTIONS.slice(0, 1));
+    const add = p.getByRole('button', { name: 'Add a payment' });
+    const tranches = [
+      ['2026-02-11', '7000', 'UPI', 'UTR 418223901'],
+      ['2026-03-04', '12000', 'Bank transfer', 'NEFT 55120'],
+    ];
+    for (let i = 0; i < tranches.length; i += 1) {
+      await add.click();
+      await p.waitForTimeout(150);
+      const [date, amount, mode, reference] = tranches[i];
+      await p.locator(`#PAYMENTS_BLOCK-${i}-DATE`).fill(date);
+      await p.locator(`#PAYMENTS_BLOCK-${i}-AMOUNT`).fill(amount);
+      await p.locator(`#PAYMENTS_BLOCK-${i}-MODE`).selectOption(mode);
+      await p.locator(`#PAYMENTS_BLOCK-${i}-REFERENCE`).fill(reference);
+    }
+    await p.locator('label[for="PAYMENTS_BLOCK"]').scrollIntoViewIfNeeded();
+    // Past the debounce, so the preview beside it carries the schedule.
     await p.waitForTimeout(1800);
   },
 });

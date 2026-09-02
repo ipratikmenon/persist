@@ -199,3 +199,38 @@
 \newenvironment{noticebody}%
   {\begin{adjustwidth}{0.6cm}{0cm}\justifying}%
   {\end{adjustwidth}}
+
+% ── The schedule of payments ─────────────────────────────────────────────────
+% A demand notice that says a sum was paid has to say when, how much and how.
+% Set as a table rather than as prose: seven tranches in a paragraph is a
+% paragraph nobody reads, and a recipient disputing one of them needs to be able
+% to point at the row.
+%
+% The total is not typed. It is summed from these rows by Keel, so the figure
+% demanded and the payments said to make it up cannot disagree.
+%
+%   \begin{paymentschedule}
+%     \paymentrow{1}{14 July 2026}{7,000.00}{UPI}{UTR 41822...}
+%   \end{paymentschedule}
+\newenvironment{paymentschedule}%
+  {\vspace{2mm}\par\noindent
+   \begin{adjustwidth}{0.6cm}{0cm}
+   \begin{tabular}{@{}L{0.8cm}L{3.5cm}R{2.5cm}L{3.0cm}L{3.4cm}@{}}
+     \textbf{\footnotesize No.} & \textbf{\footnotesize Date} &
+     \textbf{\footnotesize Amount (₹)} & \textbf{\footnotesize Mode} &
+     \textbf{\footnotesize Reference} \\[2pt]
+     \hline\rule{0pt}{3ex}}%
+  {\end{tabular}\end{adjustwidth}\vspace{3mm}}
+
+\newcommand{\paymentrow}[5]{#1. & #2 & #3 & #4 & #5 \\[2pt]}
+
+% The demanded total, set apart from the table so it reads as the demand and not
+% as another row.
+%   \paymenttotal{1,04,000.00}
+\newcommand{\paymenttotal}[1]{%
+  \par\noindent
+  \begin{adjustwidth}{0.6cm}{0cm}
+    \textbf{Total paid: ₹#1/-}
+  \end{adjustwidth}
+  \vspace{2mm}
+}

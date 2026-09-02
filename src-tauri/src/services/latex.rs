@@ -1168,6 +1168,9 @@ mod letterhead_tests {
         // the document must be complete without them. Attaching them is covered
         // in services/annexures.rs, which compiles the same template with real
         // files staged beside it.
+        // A notice with no schedule of payments. The placeholder still has to be
+        // bound: `render` refuses to compile on an unfilled one.
+        fields.insert("PAYMENTS_BLOCK".into(), Field::raw(""));
         fields.insert("ANNEXURES_BLOCK".into(), Field::raw(""));
         fields.insert("ANNEXURE_PAGES".into(), Field::raw(""));
 

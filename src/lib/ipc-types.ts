@@ -738,6 +738,12 @@ export type FieldKind =
       /** How one row is set in LaTeX. Keel's business; nothing in Deck reads
        *  it, and it is here only because the manifest arrives whole. */
       itemTemplate: string;
+      /** How the rows are wrapped, once, when there is at least one — a table
+       *  needs its header row once, not once per row. Keel's business. */
+      blockTemplate?: string | null;
+      /** Which item field is totalled for the wrapper's total. Keel sums it, so
+       *  a document cannot state a figure its own rows do not come to. */
+      totalOf?: string | null;
       minItems?: number | null;
       maxItems?: number | null;
     }

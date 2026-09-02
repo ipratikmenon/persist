@@ -639,6 +639,8 @@ mod tests {
         spec(
             "SECTIONS_BLOCK",
             FieldKind::List {
+                block_template: None,
+                total_of: None,
                 item_fields: vec![
                     spec("HEADING", FieldKind::Text { max_length: None }),
                     spec("BODY", FieldKind::Multiline { max_length: None, max_words: None }),

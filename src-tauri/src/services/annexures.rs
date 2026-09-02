@@ -470,6 +470,9 @@ mod compile_tests {
 
     async fn compile_notice(annexures: &[Annexure], attachments: &[Attachment]) -> Vec<u8> {
         let mut fields = notice_fields();
+        // A notice with no schedule of payments. The placeholder still has to
+        // be bound: `render` refuses to compile on an unfilled one.
+        fields.insert("PAYMENTS_BLOCK".into(), latex::Field::raw(""));
         fields.insert("ANNEXURES_BLOCK".into(), list_block(annexures));
         fields.insert("ANNEXURE_PAGES".into(), pages_block(annexures));
 

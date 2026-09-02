@@ -767,6 +767,9 @@ mod compile_tests {
             "SIGNATORY_BLOCK".into(),
             Field::raw("Sree Lakshmi Menon\\\\\nD/6361/2020\\\\\nAdvocates"),
         );
+        // A notice with no schedule of payments. The placeholder still has to be
+        // bound: `render` refuses to compile on an unfilled one.
+        fields.insert("PAYMENTS_BLOCK".into(), Field::raw(""));
         fields.insert("ANNEXURES_BLOCK".into(), Field::raw(""));
         fields.insert("ANNEXURE_PAGES".into(), Field::raw(""));
         fields
