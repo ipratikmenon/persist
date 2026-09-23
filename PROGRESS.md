@@ -10,11 +10,27 @@
 
 ## Current State
 
-**Phase:** 2 — Billing & Client Portal
-**Week:** 3
-**Active module:** M9.8 Smart Form Compiler built — an attorney can draft a filing from a form and never see LaTeX. Ownership recorded (app name Persist, property of Persistas & Partners).
-**Last session completed:** S23 — 2026-08-11 — Firm letterhead (logo, partner blocks, registered-office footer, Page N of M) and the Legal Notice template. cargo test 204/204.
-**Last updated:** 2026-08-11
+**Phase:** 4 — Drafting Suite (M9 substantially underway; Phase 2 M5 Client
+Portal is also functionally complete through Step 4 — see the corrected table
+below, which had been left showing ❌ for work actually finished in S18/S18b/S21)
+**Week:** n/a — phases have been worked out of strict week order since M9 was
+pulled forward
+**Active module:** M9 Document Drafting Suite. Template registry, `list`/`sum`/
+computed-template field kinds, Smart Form Compiler, page setup, annexures, and
+the firm's own identity are built; 3 of 19 PRD templates shipped (invoice,
+legal-notice, tm-examination-reply).
+**Last session completed:** S27 — 2026-08-11 — the notice's schedule of
+payments, with a total summed from the rows rather than typed. cargo test
+324/324 with `PERSIST_REQUIRE_LATEX=1`.
+**This session (audit, no feature work):** verified the branch still builds and
+tests clean after a real time gap (324/324 Keel, Deck build, portal frontend
+build all reverified green), confirmed CI is green on the current tip
+(`4a07dbc`, no open PRs, `main` untouched — 24 commits behind, as instructed),
+and corrected the staleness above: this file's phase tables had not been
+updated to reflect M5 Steps 3b/3c/4 (built in S18/S18b/S21) or M9 itself (built
+in S20–S27), and the "Open" list still named two defects S26/S27 had already
+fixed.
+**Last updated:** 2026-09-23
 
 ---
 
@@ -197,19 +213,21 @@ changed `values` to `HashMap<String, FieldValue>` while the firm resolver still
 took `HashMap<String, String>`. Resolved by hand — `firm.rs` now reads the same
 value model as everything else. A clean textual merge is not a correct merge.
 
-⚠️ Open:
+⚠️ Open (as of S27 — the two items this list carried that S26/S27 already
+closed — `tm-examination-reply`'s blank fields, and payment tranches as a
+`computed` block — are removed below rather than left to look outstanding):
 
-  - **`tm-examination-reply` has the same defect the notice had** — `FIRM_NAME`
-    and `FIRM_ADDRESS` still render blank. Same class, different template.
   - Staged annexures are held in memory and are not separately vaulted. What is
     retained is the generated document, which contains them.
-  - Payment tranches on the notice are still a `computed` block. The `list` kind
-    supports them; turning them into a list is a template decision.
-  - No autofill of a list row from the matter record.
-  - The boilerplate notice language is still my reconstruction from the notice
-    you sent. It needs a read-through before anything goes out on it.
-  - Autofill from the matter record generally; clause libraries; M5 Step 3d;
-    sidecar bundling (B03).
+  - No autofill of a list row from the matter record (or of a scalar field —
+    manifests declare `autofill` sources and nothing has ever read them).
+  - The boilerplate notice language in `legal-notice.tex` is still my
+    reconstruction from the notice you sent; the payment-schedule tranche
+    fields (S27) are my design, not verified against your notice. Neither has
+    had your read-through.
+  - Clause libraries; M5 Step 3d (object storage, virus scanning, OTP
+    delivery); sidecar bundling (B03); sixteen more PRD templates;
+    `specs/module-09-drafting.md` retroactively, if the team wants one.
 
 ---
 
@@ -392,10 +410,11 @@ value model as everything else. A clean textual merge is not a correct merge.
 | 3a | `services/sync_engine/mod.rs` — outbox drain, backoff, state | ✅ | S16 — collapsing enqueue, Delete supersedes Upsert, capped backoff (11 tests) |
 | 3a | `commands/sync.rs` — sync + portal commands | ✅ | S16 — 11 commands; the 4 ingest/dispute ones land with the transport (3b) |
 | 3a | `clean_metadata()` made real | ✅ | S13 — B07 resolved; sync engine must use `export_document`, never `get_document` |
-| 3b | Sync server Axum routes (`server/`) | ❌ | mTLS, object storage, WS |
-| 3c | Portal backend: FastAPI, OTP auth, JWT (`portal/backend/`) | ❌ | |
-| 4 | Portal frontend: 4 tabs (Matters/Documents/Invoices/Profile) | ❌ | |
-| 5 | Validation pass | ❌ | End-to-end share → download → upload → ingest → revoke |
+| 3b | Sync server Axum routes (`server/`) | ✅ | S18 — push/pull/ack, constant-time token, `deny_unknown_fields` on every wire type; server has no unit tests of its own, exercised via `src-tauri/tests/sync_e2e.rs` (needs live PostgreSQL, not run in this sandbox) |
+| 3c | Portal backend: FastAPI, OTP auth, JWT (`portal/backend/`) | ✅ | S18b — OTP+RS256 JWT+rotating refresh w/ family revocation, RLS via `SET LOCAL`; last verified 48/48 against live PostgreSQL in S18b, not independently re-run since (no Postgres in this sandbox) |
+| 4 | Portal frontend: 4 tabs (Matters/Documents/Invoices/Account) | ✅ | S21 — two-step OTP login, in-memory access token, httpOnly refresh cookie; `pnpm build` reverified clean this session |
+| 3d | Object storage, virus scanning, OTP email/SMS delivery | ❌ | Still open — downloads/uploads have no bytes to live in yet |
+| 5 | Validation pass | ❌ | End-to-end share → download → upload → ingest → revoke — needs live infra, not yet run |
 
 ---
 
@@ -421,7 +440,7 @@ value model as everything else. A clean textual merge is not a correct merge.
 | Module | Status | Notes |
 |---|---|---|
 | Module 24 Phase 4: HPAS Full Hierarchy + ValidationGate | ❌ | |
-| Module 9: Document Drafting Suite | ❌ | |
+| Module 9: Document Drafting Suite | ◐ | S20–S27 — template registry, `list`/`sum`/computed-template field kinds, Smart Form Compiler, page setup, annexures, firm identity. No `specs/module-09-drafting.md` was ever written — built directly. 3 of 19 PRD templates shipped (invoice, legal-notice, tm-examination-reply). AI proofreading (9.2), comparison (9.3), precedent library (9.6), autofill-from-matter and clause libraries not started |
 | Module 15: Integrated Mail Module | ❌ | |
 | Module 15A: Persist Editor (ProseMirror) | ❌ | |
 | Module 16: Advanced PDF Engine | ❌ | |
