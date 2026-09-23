@@ -256,6 +256,7 @@ pub fn run() {
             commands::sync::set_sync_token,
             commands::drafting::list_templates,
             commands::drafting::get_template,
+            commands::drafting::resolve_autofill,
             commands::drafting::render_document,
             commands::drafting::stage_annexure,
             commands::drafting::discard_annexure,

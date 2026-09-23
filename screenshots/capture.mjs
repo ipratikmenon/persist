@@ -338,6 +338,19 @@ await shot('23-payment-schedule', NOTICE, {
   },
 });
 
+// The examination reply, opened fresh against a matter and touched nowhere —
+// what the matter record already knows (attorney, forum, application number,
+// mark, class, applicant) should already be sitting in the form. Nothing else
+// should be: SUBMISSIONS, GROUNDS_TEXT and the rest are still the attorney's
+// to write.
+await shot('24-smart-form-autofilled', '/drafting/tm-examination-reply?matter=P%26P-2026-TM-0042', {
+  setup: async (p) => {
+    // The autofill call is a separate round trip after the manifest loads —
+    // give it a beat past the entrance animation `shot()` already waits out.
+    await p.waitForTimeout(400);
+  },
+});
+
 await browser.close();
 server.close();
 console.log(`\nWrote ${fs.readdirSync(OUT).length} screenshots to screenshots/out/`);

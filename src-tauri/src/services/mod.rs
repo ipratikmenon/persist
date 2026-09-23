@@ -1,6 +1,7 @@
 pub mod abandonment_watcher;
 pub mod ai_router;
 pub mod annexures;
+pub mod autofill;
 pub mod cascade_engine;
 pub mod dates;
 pub mod deadline_watcher;

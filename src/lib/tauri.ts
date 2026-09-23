@@ -232,6 +232,16 @@ export const keel = {
     listTemplates: () => invoke<TemplateManifest[]>('list_templates'),
     /** The schema Deck builds the form from. */
     getTemplate: (id: string) => invoke<TemplateManifest>('get_template', { id }),
+    /** What the manifest's `autofill` hints resolve to on this matter — a
+     *  starting point to merge into empty fields, never a value that
+     *  overrides what the attorney has already typed. A key the record could
+     *  not resolve is simply absent, not sent as an empty string. */
+    resolveAutofill: (templateId: string, matterId: string, ipAssetId?: string) =>
+      invoke<Record<string, string>>('resolve_autofill', {
+        templateId,
+        matterId,
+        ipAssetId,
+      }),
     /** Validates, then renders. Draft is one pass for the preview; Final is two
      *  and, given a matterId, files the result into the vault. */
     render: (input: RenderDocumentInput) =>

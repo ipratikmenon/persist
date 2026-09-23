@@ -44,6 +44,11 @@ export function SmartForm() {
   const { templateId = '' } = useParams();
   const [params] = useSearchParams();
   const matterId = params.get('matter') ?? undefined;
+  // Which mark, patent or design a `ipAsset.*` autofill source resolves
+  // against. Optional: Keel falls back to the matter's only IP asset when one
+  // exists and this is not given, which covers the common case of a
+  // trademark matter about one mark.
+  const ipAssetId = params.get('ipAsset') ?? undefined;
   const navigate = useNavigate();
   const shouldReduce = useReducedMotion();
 
@@ -69,6 +74,42 @@ export function SmartForm() {
       .then(setManifest)
       .catch((e) => setLoadError(e instanceof Error ? e.message : String(e)));
   }, [templateId]);
+
+  // Fill in what the matter record already knows, once the manifest says what
+  // it wants and there is a matter to ask. Only ever into a field nobody has
+  // touched yet — never overwriting what the attorney has already typed, which
+  // is why this checks each key individually rather than replacing `values`.
+  useEffect(() => {
+    if (!manifest || !matterId) return;
+    let cancelled = false;
+
+    keel.drafting
+      .resolveAutofill(manifest.id, matterId, ipAssetId)
+      .then((resolved) => {
+        if (cancelled) return;
+        setValues((prev) => {
+          const next = { ...prev };
+          let changed = false;
+          for (const [key, value] of Object.entries(resolved)) {
+            if (next[key] === undefined) {
+              next[key] = value;
+              changed = true;
+            }
+          }
+          return changed ? next : prev;
+        });
+      })
+      .catch(() => {
+        // Autofill is a convenience the record offers, not a step the
+        // attorney depends on — a failure here leaves the form exactly as
+        // empty as a matter with nothing to offer would, rather than
+        // blocking drafting by hand.
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [manifest, matterId, ipAssetId]);
 
   // A blob URL is a document held in memory. Releasing it matters here: the
   // preview replaces it on every render, so leaking one per keystroke would

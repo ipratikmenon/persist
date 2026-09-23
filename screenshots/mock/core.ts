@@ -365,6 +365,22 @@ const HANDLERS: Record<string, (args: any) => unknown> = {
   get_template: (args: any) =>
     withDefaults(TEMPLATES.find(t => t.id === args?.id) ?? TM_REPLY_MANIFEST),
 
+  // What the matter record already knows, standing in for services/autofill.rs.
+  // Real Keel resolves these against the matter/client/ip-asset tables; here
+  // it is enough to prove the six fields the reply manifest declares come back
+  // pre-filled in the form, and that nothing else does.
+  resolve_autofill: (args: any) => {
+    if (args?.templateId !== 'tm-examination-reply') return {};
+    return {
+      ATTORNEY_NAME: 'Sree Lakshmi Menon',
+      REGISTRY_OFFICE: 'Delhi',
+      TM_NUMBER: '5544121',
+      TM_MARK: 'PETALVEDA',
+      TM_CLASS: '3, 5',
+      APPLICANT_NAME: 'Petalveda Naturals Pvt Ltd',
+    };
+  },
+
   // Attaching a file. Keel reads it, checks the type and strips its metadata;
   // here the point is only that the row gets a name and an id to refer to.
   stage_annexure: (args: any) => ({

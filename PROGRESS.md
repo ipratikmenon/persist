@@ -19,17 +19,18 @@ pulled forward
 computed-template field kinds, Smart Form Compiler, page setup, annexures, and
 the firm's own identity are built; 3 of 19 PRD templates shipped (invoice,
 legal-notice, tm-examination-reply).
-**Last session completed:** S27 — 2026-08-11 — the notice's schedule of
-payments, with a total summed from the rows rather than typed. cargo test
-324/324 with `PERSIST_REQUIRE_LATEX=1`.
-**This session (audit, no feature work):** verified the branch still builds and
-tests clean after a real time gap (324/324 Keel, Deck build, portal frontend
-build all reverified green), confirmed CI is green on the current tip
-(`4a07dbc`, no open PRs, `main` untouched — 24 commits behind, as instructed),
-and corrected the staleness above: this file's phase tables had not been
-updated to reflect M5 Steps 3b/3c/4 (built in S18/S18b/S21) or M9 itself (built
-in S20–S27), and the "Open" list still named two defects S26/S27 had already
-fixed.
+**Last session completed:** S29 — 2026-09-23 — scalar autofill from the matter
+record (`services/autofill.rs`): `client.name`, `matter.responsibleAttorney`,
+`matter.forum`, `ipAsset.applicationNumber/title/classes` now actually resolve,
+declared since S20 and never read until now. cargo test 337/337 with
+`PERSIST_REQUIRE_LATEX=1`.
+**S28 (audit, no feature work):** verified the branch still builds and tests
+clean after a six-week gap, confirmed CI green on tip with no open PRs and
+`main` untouched, and corrected staleness in this file's phase tables (M5 Steps
+3b/3c/4 and M9 itself had been left showing ❌ for work already done, and the
+"Open" list still named two defects S26/S27 had already fixed). Sent a sample
+notice (letterhead + sections + payment schedule) for your review — the
+boilerplate language and tranche fields are still awaiting your read-through.
 **Last updated:** 2026-09-23
 
 ---
@@ -213,20 +214,58 @@ changed `values` to `HashMap<String, FieldValue>` while the firm resolver still
 took `HashMap<String, String>`. Resolved by hand — `firm.rs` now reads the same
 value model as everything else. A clean textual merge is not a correct merge.
 
-⚠️ Open (as of S27 — the two items this list carried that S26/S27 already
-closed — `tm-examination-reply`'s blank fields, and payment tranches as a
-`computed` block — are removed below rather than left to look outstanding):
+### S29 — scalar autofill from the matter record
+
+The manifests have declared `autofill` sources since S20 — `client.name`,
+`matter.responsibleAttorney`, `matter.forum`, `ipAsset.applicationNumber`,
+`ipAsset.title`, `ipAsset.classes` — and nothing had ever read them. Every
+Reply to Examination Report asked the attorney to re-type an application
+number the matter's own IP asset record already held.
+
+`services/autofill.rs` resolves them: a new `resolve_autofill` command reads
+the manifest's declarations, resolves each against the matter, its client and
+(where an `ipAsset.*` source appears) one IP asset, and returns only the keys
+that actually resolved — never an empty string standing in for "nothing here",
+which would be indistinguishable from a genuinely blank field. `ipAsset.*`
+resolves against the matter's only asset when there is exactly one; with none
+or several it resolves nothing rather than guess which mark is meant. Deck
+merges the result into the form once, on load, and only into fields the
+attorney has not already touched — autofill is a starting point, never a value
+that overrides typing or makes a field stop being editable.
+
+Verified past the unit tests: a new screenshot (`24-smart-form-autofilled`)
+opens the reply form against a real matter fixture with nothing typed, and the
+six declared fields come back filled while the two dates — which declare no
+autofill source — stay blank, exactly as designed.
+
+Two negative controls: removing the "skip empty values" guard was caught by a
+class-list test already in place, but that test turned out to be exercising a
+different, earlier guard (`ip_asset_field`'s own empty check) — so a second
+test was added seeding a matter with `forum = ''` (empty string, not NULL,
+which SQLite allows) specifically to reach the later guard, and *that* one
+failed when the guard was removed, confirming the assertion was checking what
+it claimed to.
+
+cargo test 337/337 with `PERSIST_REQUIRE_LATEX=1` (was 324). Deck and portal
+frontend builds clean.
+
+⚠️ Open (as of S29):
 
   - Staged annexures are held in memory and are not separately vaulted. What is
     retained is the generated document, which contains them.
-  - No autofill of a list row from the matter record (or of a scalar field —
-    manifests declare `autofill` sources and nothing has ever read them).
+  - No autofill of a *list row* from the matter record — only scalar fields.
+    A payment schedule's tranches, for instance, still have to be typed by
+    hand even when a matter's billing/payment history could plausibly seed
+    them. Not attempted this session; scope was "the declared sources", and no
+    manifest declares a list-row autofill source yet.
   - The boilerplate notice language in `legal-notice.tex` is still my
     reconstruction from the notice you sent; the payment-schedule tranche
-    fields (S27) are my design, not verified against your notice. Neither has
-    had your read-through.
+    fields (S27) are my design, not verified against your notice. Sent for
+    your review in S28; response still pending as of this session.
   - Clause libraries; M5 Step 3d (object storage, virus scanning, OTP
-    delivery); sidecar bundling (B03); sixteen more PRD templates;
+    delivery); sidecar bundling (B03); sixteen more PRD templates (no source
+    material for them yet — building them speculatively repeats the mistake
+    already made once with `legal-notice.tex`'s boilerplate);
     `specs/module-09-drafting.md` retroactively, if the team wants one.
 
 ---
@@ -440,7 +479,7 @@ closed — `tm-examination-reply`'s blank fields, and payment tranches as a
 | Module | Status | Notes |
 |---|---|---|
 | Module 24 Phase 4: HPAS Full Hierarchy + ValidationGate | ❌ | |
-| Module 9: Document Drafting Suite | ◐ | S20–S27 — template registry, `list`/`sum`/computed-template field kinds, Smart Form Compiler, page setup, annexures, firm identity. No `specs/module-09-drafting.md` was ever written — built directly. 3 of 19 PRD templates shipped (invoice, legal-notice, tm-examination-reply). AI proofreading (9.2), comparison (9.3), precedent library (9.6), autofill-from-matter and clause libraries not started |
+| Module 9: Document Drafting Suite | ◐ | S20–S29 — template registry, `list`/`sum`/computed-template field kinds, Smart Form Compiler, page setup, annexures, firm identity, scalar autofill-from-matter (S29). No `specs/module-09-drafting.md` was ever written — built directly. 3 of 19 PRD templates shipped (invoice, legal-notice, tm-examination-reply). AI proofreading (9.2), comparison (9.3), precedent library (9.6), list-row autofill and clause libraries not started |
 | Module 15: Integrated Mail Module | ❌ | |
 | Module 15A: Persist Editor (ProseMirror) | ❌ | |
 | Module 16: Advanced PDF Engine | ❌ | |

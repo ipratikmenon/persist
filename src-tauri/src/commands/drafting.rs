@@ -12,6 +12,7 @@ use crate::services::sync_engine::{self, EntityType, Op};
 use base64::engine::general_purpose::STANDARD as BASE64;
 use base64::Engine as _;
 use crate::services::annexures::{self, Annexure};
+use crate::services::autofill;
 use crate::services::firm;
 use crate::services::latex::{self, Attachment, CompileMode, Field};
 use crate::services::layout::{self, DocumentLayout};
@@ -129,6 +130,43 @@ pub async fn list_templates() -> Result<Vec<TemplateManifest>, String> {
 pub async fn get_template(id: String) -> Result<TemplateManifest, String> {
     let dir = latex::templates_dir().map_err(|e| e.to_string())?;
     templates::get(&dir, &id).map_err(|e| e.to_string())
+}
+
+/// What the manifest's `autofill` hints resolve to, for one matter.
+///
+/// A starting point Deck merges into an otherwise-empty form — never a value
+/// that overrides what the attorney has already typed, and never a reason a
+/// field stops being editable. A key the record could not resolve is simply
+/// absent from the map, not bound to an empty string.
+///
+/// Behind the same permission as `render_document`: this reads the client's
+/// name and the matter's own details, which is not public the way a template
+/// shape is.
+#[tauri::command]
+pub async fn resolve_autofill(
+    template_id: String,
+    matter_id: String,
+    ip_asset_id: Option<String>,
+    state: tauri::State<'_, AppState>,
+) -> Result<HashMap<String, String>, String> {
+    rbac::require(&state, Permission::CreateDeadline).await?;
+
+    let dir = latex::templates_dir().map_err(|e| e.to_string())?;
+    let manifest = templates::get(&dir, &template_id).map_err(|e| e.to_string())?;
+
+    let pool = { state.db.lock().await.clone() };
+    autofill::resolve(&pool, &declared_autofill(&manifest), &matter_id, ip_asset_id.as_deref())
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Every `(field key, autofill source)` pair a manifest declares.
+fn declared_autofill(manifest: &TemplateManifest) -> Vec<(String, String)> {
+    manifest
+        .fields
+        .iter()
+        .filter_map(|spec| spec.autofill.clone().map(|source| (spec.key.clone(), source)))
+        .collect()
 }
 
 /// Validate and render.
@@ -724,5 +762,34 @@ mod tests {
         let m = manifest(vec![conditional]);
         let fields = to_latex_fields(&m, &HashMap::new());
         assert_eq!(fields["FIRST_USE"], Field::text(""));
+    }
+
+    /// The six real declarations in the shipped Reply to Examination Report,
+    /// extracted correctly — this is the one part of `resolve_autofill` that is
+    /// not `autofill::resolve` itself, so it is what could actually be wrong.
+    #[test]
+    fn declared_autofill_finds_every_source_the_shipped_reply_manifest_names() {
+        let dir = latex::templates_dir().expect("templates directory");
+        let manifest = templates::get(&dir, "tm-examination-reply").unwrap();
+
+        let declared = declared_autofill(&manifest);
+        let by_key: HashMap<&str, &str> =
+            declared.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
+
+        assert_eq!(by_key.get("ATTORNEY_NAME"), Some(&"matter.responsibleAttorney"));
+        assert_eq!(by_key.get("REGISTRY_OFFICE"), Some(&"matter.forum"));
+        assert_eq!(by_key.get("TM_NUMBER"), Some(&"ipAsset.applicationNumber"));
+        assert_eq!(by_key.get("TM_MARK"), Some(&"ipAsset.title"));
+        assert_eq!(by_key.get("TM_CLASS"), Some(&"ipAsset.classes"));
+        assert_eq!(by_key.get("APPLICANT_NAME"), Some(&"client.name"));
+        assert_eq!(declared.len(), 6, "an autofill declaration was added or dropped: {declared:?}");
+    }
+
+    /// A field with no `autofill` key is absent from the list, not present with
+    /// an empty source — `autofill::resolve` treats every entry as real work.
+    #[test]
+    fn a_field_with_no_autofill_source_is_not_declared() {
+        let m = manifest(vec![spec("SUBJECT", FieldKind::Text { max_length: None })]);
+        assert!(declared_autofill(&m).is_empty());
     }
 }
