@@ -290,6 +290,22 @@ async def insert_upload(
     return dict(row.mappings().one())
 
 
+async def update_upload_scan_status(
+    conn: AsyncConnection, *, client_id: str, upload_id: str, scan_status: str
+) -> None:
+    """The one column `portal_writer` may touch after the insert — see
+    server/migrations/0005_scan_result.sql. `client_id` is redundant with RLS
+    but kept, per the module's belt-and-braces rule (spec §9)."""
+    await conn.execute(
+        text("""
+            UPDATE inbound.client_uploads
+            SET scan_status = :status
+            WHERE client_id = :cid AND id = :uid
+        """),
+        {"status": scan_status, "cid": client_id, "uid": upload_id},
+    )
+
+
 async def list_uploads(conn: AsyncConnection, client_id: str) -> list[dict]:
     rows = await conn.execute(
         text("""

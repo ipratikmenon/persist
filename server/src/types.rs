@@ -58,6 +58,25 @@ pub struct IpAssetPublic {
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct DocumentPublic {
+    pub id: String,
+    pub client_id: String,
+    pub matter_id: String,
+    pub filename: String,
+    pub category: String,
+    pub mime_type: String,
+    pub file_size_bytes: i64,
+    pub version: i32,
+    pub description: Option<String>,
+    /// Set by the desktop from the response of `POST /sync/documents` — the
+    /// bytes must already be in the bucket before this upsert is pushed, or
+    /// the mirror row would name an object that does not exist yet.
+    pub object_key: String,
+    pub sha256: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct InvoicePublic {
     pub id: String,
     pub client_id: String,

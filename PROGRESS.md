@@ -10,19 +10,27 @@
 
 ## Current State
 
-**Phase:** 4 — Drafting Suite (M9 substantially underway; Phase 2 M5 Client
-Portal is also functionally complete through Step 4 — see the corrected table
-below, which had been left showing ❌ for work actually finished in S18/S18b/S21)
+**Phase:** 4 — Drafting Suite (M9 substantially underway); Phase 2 M5 Client
+Portal is now functionally complete through Step 3d — only the live-infra
+validation pass (Step 5) remains, and that needs real deployment credentials
+this sandbox cannot hold.
 **Week:** n/a — phases have been worked out of strict week order since M9 was
 pulled forward
 **Active module:** M9 Document Drafting Suite. Template registry, `list`/`sum`/
 computed-template field kinds, Smart Form Compiler, page setup, annexures, and
 the firm's own identity are built; 3 of 19 PRD templates shipped (invoice,
 legal-notice, tm-examination-reply).
-**Last session completed:** S29 — 2026-09-23 — scalar autofill from the matter
-record (`services/autofill.rs`): `client.name`, `matter.responsibleAttorney`,
-`matter.forum`, `ipAsset.applicationNumber/title/classes` now actually resolve,
-declared since S20 and never read until now. cargo test 337/337 with
+**Last session completed:** S30 — 2026-09-23 — M5 Step 3d: real SMTP OTP
+delivery, real ClamAV virus scanning, and a real S3-compatible object store
+wired into both the portal (quarantine uploads) and the sync server (shared
+documents, pending-upload downloads). Also stood up local PostgreSQL in this
+sandbox for the first time and re-verified the portal/server suites against
+it live rather than trusting prior session logs. portal/backend 67/67
+(was 48), server 22/22 (new), RLS gate PASS.
+**S29:** scalar autofill from the matter record (`services/autofill.rs`):
+`client.name`, `matter.responsibleAttorney`, `matter.forum`,
+`ipAsset.applicationNumber/title/classes` now actually resolve, declared
+since S20 and never read until now. cargo test 337/337 with
 `PERSIST_REQUIRE_LATEX=1`.
 **S28 (audit, no feature work):** verified the branch still builds and tests
 clean after a six-week gap, confirmed CI green on tip with no open PRs and
@@ -39,8 +47,7 @@ boilerplate language and tranche fields are still awaiting your read-through.
 
 > Fill this section at the start of a session. Clear it when done.
 
-**Nothing in progress.** S27 finished the notice's payment particulars — the
-last of the blocks that nothing filled. On `claude/new-session-dbqe5o`.
+**Nothing in progress.** S30 finished M5 Step 3d. On `claude/new-session-dbqe5o`.
 
 ### S27 — the schedule of payments, and a figure nobody types
 
@@ -262,11 +269,87 @@ frontend builds clean.
     reconstruction from the notice you sent; the payment-schedule tranche
     fields (S27) are my design, not verified against your notice. Sent for
     your review in S28; response still pending as of this session.
-  - Clause libraries; M5 Step 3d (object storage, virus scanning, OTP
-    delivery); sidecar bundling (B03); sixteen more PRD templates (no source
-    material for them yet — building them speculatively repeats the mistake
-    already made once with `legal-notice.tex`'s boilerplate);
+  - Clause libraries; sidecar bundling (B03); sixteen more PRD templates (no
+    source material for them yet — building them speculatively repeats the
+    mistake already made once with `legal-notice.tex`'s boilerplate);
     `specs/module-09-drafting.md` retroactively, if the team wants one.
+    M5 Step 3d, listed here in S29, was completed in S30 below.
+
+### S30 — M5 Step 3d: object storage, virus scanning, OTP delivery
+
+The client portal had the shape of this pipe since S14–S21 but not the pipe
+itself: `request_otp` generated a real code and then, per its own `TODO(M5
+Step 3d)` comment, delivered it nowhere; `client_uploads.scan_status`
+defaulted to `Pending` and nothing ever moved it; `upload_document` computed
+a `sha256` and an `object_key` for bytes it then discarded, because nothing
+wrote them anywhere. All three are real now, all three fail closed to
+"not configured" rather than a silent no-op, and all three are proven
+against a real protocol implementation, not a mock that only agrees with
+itself:
+
+- **OTP email** (`portal/backend/app/email.py`) — real SMTP via `smtplib`
+  off the event loop, STARTTLS-capable. Tested against a from-scratch fake
+  SMTP server speaking the real wire protocol (EHLO/AUTH/MAIL FROM/RCPT
+  TO/DATA), not a mocked client.
+- **Virus scanning** (`portal/backend/app/scanning.py`) — the real clamd
+  `INSTREAM` protocol over TCP (chunked, length-prefixed), wired into
+  `upload_document`. `server/migrations/0005_scan_result.sql` grants
+  `portal_writer` `UPDATE (scan_status)` — one column, RLS-scoped — since
+  0002 had only ever given it `SELECT, INSERT` on `client_uploads`.
+- **Object storage** — a hand-rolled S3-compatible client (AWS SigV4,
+  path-style), written twice: `portal/backend/app/object_store.py` for the
+  quarantine bucket, `server/src/object_store.rs` for the sync server's new
+  `POST /sync/documents`, `DELETE /sync/documents/{key}`, and
+  `GET /sync/uploads/{id}/object` (spec §12, previously unbuilt). Both
+  signers are tested against a fake bucket that *independently recomputes*
+  the signature rather than merely checking a header is present — a wrong
+  secret is proven to get a real `403`, not just asserted to.
+- **The other half of "share a document"**: `mirror.documents_shared` had a
+  column for `object_key` since S14 but `apply()` in `server/src/main.rs`
+  had no upsert case for `entity_type = "Document"` — only its tombstone
+  delete existed. Added `DocumentPublic` (types.rs) and
+  `mirror::upsert_document`, so the object-storage PUT this session adds is
+  actually reachable end to end: bytes in the bucket, then the metadata
+  upsert that points at them.
+
+**Every unconfigured case was deliberately re-checked, not just assumed.**
+The portal's existing `test_an_upload_is_queued_not_ingested` (pre-S30)
+asserts `scanStatus == "Pending"` with no scanner or bucket configured —
+that test still passes unmodified, because "not configured" returns `None`/
+`False`, distinct from a `Failed` verdict, and the caller only writes a
+verdict it actually got.
+
+**Negative controls, all confirmed to have teeth** by deliberately breaking
+the thing under test and watching the right test fail, then restoring:
+email's failure-swallowing, the clamd `FOUND` detector, both SigV4 signers
+(Python and Rust), and the sync server's auth check on the new upload route.
+
+**Also this session:** stood up local PostgreSQL for the first time in this
+sandbox (it was already installed, just not running) and re-verified the
+portal and server suites against it live, rather than continuing to cite
+S18b's numbers from six weeks ago. `portal/backend`: 67/67 (was 48 — +5
+email, +7 scanning, +4 object store, +3 upload-pipeline integration).
+`server`: 22/22, all new (8 `object_store` unit tests + 14 route-level
+integration tests — this crate had no tests of its own before). RLS gate:
+12/12 PASS, including the new `0005` grant.
+
+⚠️ Open (as of S30):
+
+  - **Step 5 (validation pass)** is the only M5 row still ❌ — it needs a
+    real Hetzner bucket, a real clamd, and a real SMTP relay, none of which
+    a sandbox can hold credentials for. Everything this session built is
+    protocol-verified against faithful local implementations of each; it is
+    not verified against the actual providers.
+  - **`apply()` still has no upsert for `Payment` or `Notification`**,
+    discovered while adding `Document`'s. `delete_entity` already handles
+    both; the corresponding upserts do not exist. Documented in
+    `server/SCHEMA.md`. Out of scope for Step 3d — flagged, not fixed.
+  - STARTTLS itself is not exercised by an automated test (it needs a TLS
+    certificate a test server would have to mint); the plaintext protocol
+    path and the AUTH negotiation are both tested for real.
+  - Everything else from S29's list stands: list-row autofill, the
+    boilerplate/tranche review (still awaiting your read-through), sixteen
+    more PRD templates, clause libraries, `specs/module-09-drafting.md`.
 
 ---
 
@@ -443,17 +526,17 @@ frontend builds clean.
 | 1 | `specs/module-05-portal.md` written | ✅ | S12 — sync contract, mirror schema, RLS, doc pipeline, OTP/JWT |
 | 2 | Desktop migration `0009_portal_sync.sql` | ✅ | S14 — deadlines.is_client_visible (+statutory backfill), portal_users, sync_outbox, client_uploads, sync_state |
 | 2 | PostgreSQL mirror schema (`server/migrations/`) | ✅ | S14 — `0001_mirror.sql`: mirror.* (9 tables) + inbound.* (3 tables) |
-| 2 | RLS policies + portal_reader/portal_writer roles | ✅ | S14 — `0002_rls.sql`: 3 roles, FORCE RLS, WITH CHECK on inbound. **Gate passes** (10 assertions, verified to fail when RLS disabled) |
+| 2 | RLS policies + portal_reader/portal_writer roles | ✅ | S14 — `0002_rls.sql`: 3 roles, FORCE RLS, WITH CHECK on inbound. **Gate passes** (12 assertions as of `0005_scan_result.sql`, re-verified in S30; verified to fail when RLS disabled) |
 | 2 | `server/SCHEMA.md` written | ✅ | S14 |
 | 3a | `services/sync_engine/projection.rs` — allow-list projections | ✅ | S16 — 12 tests asserting denied fields never reach the wire payload |
 | 3a | `services/sync_engine/mod.rs` — outbox drain, backoff, state | ✅ | S16 — collapsing enqueue, Delete supersedes Upsert, capped backoff (11 tests) |
 | 3a | `commands/sync.rs` — sync + portal commands | ✅ | S16 — 11 commands; the 4 ingest/dispute ones land with the transport (3b) |
 | 3a | `clean_metadata()` made real | ✅ | S13 — B07 resolved; sync engine must use `export_document`, never `get_document` |
-| 3b | Sync server Axum routes (`server/`) | ✅ | S18 — push/pull/ack, constant-time token, `deny_unknown_fields` on every wire type; server has no unit tests of its own, exercised via `src-tauri/tests/sync_e2e.rs` (needs live PostgreSQL, not run in this sandbox) |
-| 3c | Portal backend: FastAPI, OTP auth, JWT (`portal/backend/`) | ✅ | S18b — OTP+RS256 JWT+rotating refresh w/ family revocation, RLS via `SET LOCAL`; last verified 48/48 against live PostgreSQL in S18b, not independently re-run since (no Postgres in this sandbox) |
+| 3b | Sync server Axum routes (`server/`) | ✅ | S18 — push/pull/ack, constant-time token, `deny_unknown_fields` on every wire type; now has its own unit + route-level test suite too (S30, 14 tests, live PostgreSQL — see below) |
+| 3c | Portal backend: FastAPI, OTP auth, JWT (`portal/backend/`) | ✅ | S18b — OTP+RS256 JWT+rotating refresh w/ family revocation, RLS via `SET LOCAL`. **Re-verified against live PostgreSQL in S30** (this sandbox now has one — see Environment Notes) — 67/67, up from 48 at session start |
 | 4 | Portal frontend: 4 tabs (Matters/Documents/Invoices/Account) | ✅ | S21 — two-step OTP login, in-memory access token, httpOnly refresh cookie; `pnpm build` reverified clean this session |
-| 3d | Object storage, virus scanning, OTP email/SMS delivery | ❌ | Still open — downloads/uploads have no bytes to live in yet |
-| 5 | Validation pass | ❌ | End-to-end share → download → upload → ingest → revoke — needs live infra, not yet run |
+| 3d | Object storage, virus scanning, OTP email/SMS delivery | ✅ | S30 — real SMTP delivery, a real clamd (ClamAV) scan, and a real S3-compatible object store in both the portal (quarantine bucket) and the sync server (`/sync/documents`, `/sync/uploads/{id}/object`). All three fail closed to "not configured" rather than a silent no-op — see S30 below |
+| 5 | Validation pass | ❌ | End-to-end share → download → upload → ingest → revoke, against a *deployed* bucket/clamd/SMTP relay — still needs real infra credentials this sandbox cannot hold, not yet run |
 
 ---
 
@@ -685,7 +768,22 @@ pnpm build              # Build Deck for production — currently 477 modules, 5
 ANTHROPIC_API_KEY=      # Claude API key for ai_router.rs
 DATABASE_URL=           # SQLite path for sqlx CLI (dev only)
 HETZNER_SYNC_URL=       # Sync server URL (Phase 2 M5)
+
+# server/ (sync server) — optional; unset means the corresponding routes
+# answer 503 rather than the server refusing to start (S30)
+S3_ENDPOINT_URL= S3_BUCKET= S3_REGION= S3_ACCESS_KEY_ID= S3_SECRET_ACCESS_KEY=
+
+# portal/backend/ (client portal) — same "unset = not configured" rule (S30)
+PORTAL_SMTP_HOST= PORTAL_SMTP_PORT= PORTAL_SMTP_USERNAME= PORTAL_SMTP_PASSWORD=
+PORTAL_CLAMD_HOST= PORTAL_CLAMD_PORT=
+PORTAL_S3_ENDPOINT_URL= PORTAL_S3_BUCKET= PORTAL_S3_REGION= PORTAL_S3_ACCESS_KEY_ID= PORTAL_S3_SECRET_ACCESS_KEY=
 ```
+
+**As of S30, this sandbox has a local PostgreSQL 16** (`service postgresql
+start` — it was already installed, just not running). Don't assume the
+portal/server test suites can't run here; they can, once seeded — see
+`portal/backend/tests/conftest.py`'s docstring and `server/scripts/test-rls.sh`
+for how to create and migrate a throwaway database.
 
 ---
 

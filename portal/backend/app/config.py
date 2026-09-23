@@ -61,6 +61,36 @@ class Settings(BaseSettings):
     # Set only in tests. Lets the OTP code be read back instead of emailed.
     expose_otp_for_tests: bool = False
 
+    # SMTP relay for OTP delivery. `smtp_host` unset means "not configured" —
+    # the portal still issues codes (so login flow tests and manual QA via
+    # expose_otp_for_tests keep working) but does not attempt to send one.
+    # A firm deployment sets this; there is no default host, because a wrong
+    # default that looks configured is worse than an explicit "not sending".
+    smtp_host: str | None = None
+    smtp_port: int = 587
+    smtp_username: str | None = None
+    smtp_password: str | None = None
+    smtp_from_address: str = "Persist <no-reply@persistas.example>"
+    smtp_use_tls: bool = True
+    smtp_timeout_seconds: float = 10.0
+
+    # ClamAV daemon (clamd), TCP INSTREAM protocol. Unset host means "not
+    # configured" — uploads are then left at scan_status = 'Pending' rather
+    # than waved through, since spec §15.12 requires scanned-clean before the
+    # desktop will touch an upload.
+    clamd_host: str | None = None
+    clamd_port: int = 3310
+    clamd_timeout_seconds: float = 15.0
+
+    # Object storage (Hetzner, S3-compatible). Used to write the quarantine
+    # copy of a client upload. Required once uploads are enabled in a real
+    # deployment; there is no default bucket.
+    s3_endpoint_url: str | None = None
+    s3_bucket: str | None = None
+    s3_region: str = "auto"
+    s3_access_key_id: str | None = None
+    s3_secret_access_key: str | None = None
+
     @property
     def jwt_private_key(self) -> str:
         return self.jwt_private_key_path.read_text()

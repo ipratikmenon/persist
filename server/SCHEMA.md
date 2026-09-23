@@ -18,6 +18,7 @@ authoritative. See `src-tauri/src/db/SCHEMA.md` for the canonical schema and
 | `0002_rls.sql` | Row-level security policies, `portal_reader` / `portal_writer` / `sync_writer` roles | Phase 2 M5 |
 | `0003_portal_auth.sql` | `portal_auth` role — the login path. Neither existing portal role can resolve an email or touch an OTP challenge | Phase 2 M5 |
 | `0004_refresh_tokens.sql` | `inbound.refresh_tokens` — rotating refresh tokens with reuse detection | Phase 2 M5 |
+| `0005_scan_result.sql` | `portal_writer` gets `UPDATE (scan_status)` on `inbound.client_uploads`, scoped by the matching RLS policy — the ClamAV scan step (Step 3d) writes its verdict back onto the row it just inserted | Phase 2 M5 Step 3d |
 
 ---
 
@@ -43,7 +44,7 @@ without joining. A join inside a policy is a policy that can be tricked.
 | Role | Grants | Purpose |
 |---|---|---|
 | `portal_reader` | `SELECT` on `mirror.*` only | The portal's read connection. Structurally incapable of mutating the mirror |
-| `portal_writer` | `SELECT, INSERT` on `inbound.client_uploads` and `inbound.invoice_disputes` only | Client-authored writes. **No grant on `inbound.otp_challenges`** — a leaked portal credential must not reach OTP hashes |
+| `portal_writer` | `SELECT, INSERT` on `inbound.client_uploads` and `inbound.invoice_disputes`; `UPDATE (scan_status)` on `inbound.client_uploads` only (0005) | Client-authored writes, plus recording its own virus-scan verdict. **No grant on `inbound.otp_challenges`**, and no grant on any other column of `client_uploads` — a leaked portal credential must not reach OTP hashes or rewrite what it already filed |
 | `portal_auth` | `SELECT/INSERT/UPDATE/DELETE` on `inbound.otp_challenges` and `inbound.refresh_tokens`; `SELECT` on `mirror.portal_users` plus `UPDATE (last_login_at)` | The login path only. Deliberately narrow: a compromised auth connection yields the client roster and **nothing about the firm's work** |
 | `sync_writer` | Full DML on both schemas | The sync server, reached only from the desktop |
 
@@ -207,11 +208,14 @@ stripped metadata on the desktop (B07).
 | `file_size_bytes` | BIGINT NOT NULL | |
 | `object_key` | TEXT NOT NULL | **Quarantine bucket** — moves to the vault only when the desktop pulls it |
 | `sha256` | TEXT NOT NULL | |
-| `scan_status` | TEXT NOT NULL DEFAULT 'Pending' | `Pending \| Clean \| Infected \| Failed` |
+| `scan_status` | TEXT NOT NULL DEFAULT 'Pending' | `Pending \| Clean \| Infected \| Failed` — written by the portal's own ClamAV scan step (0005), never by the client |
 | `status` | TEXT NOT NULL DEFAULT 'Pending' | `Pending \| Ingested \| Rejected` |
 | `uploaded_at` | TIMESTAMPTZ NOT NULL DEFAULT now() | |
 
-The desktop refuses anything not `scan_status = 'Clean'`.
+The desktop refuses anything not `scan_status = 'Clean'`, and `GET
+/sync/uploads/{id}/object` (below) serves bytes only for a row still
+`status = 'Pending'` — an already-ingested or rejected upload has nothing
+left to fetch.
 
 ### `inbound.invoice_disputes`
 | Column | Type | Notes |
@@ -283,6 +287,51 @@ Without it a client could file a dispute as someone else.
 one, and with RLS enabled and no policy a table returns zero rows. A forgotten
 policy therefore hides data rather than exposing it. Enabling RLS on new tables
 is still required, and `tests/rls_test.sql` Test 7 fails if it is skipped.
+
+---
+
+## Object Storage (Step 3d)
+
+`src/object_store.rs` hand-rolls a minimal S3-compatible client (AWS
+Signature Version 4, path-style addressing) — Hetzner Object Storage speaks
+the S3 API, and this is the Rust twin of `portal/backend/app/object_store.py`,
+which does the same for the portal's quarantine-bucket upload. Configured
+entirely from five environment variables, all-or-nothing:
+
+| Variable | Purpose |
+|---|---|
+| `S3_ENDPOINT_URL` | e.g. `https://<region>.your-objectstorage.com` |
+| `S3_BUCKET` | Bucket name |
+| `S3_REGION` | Signing region |
+| `S3_ACCESS_KEY_ID` / `S3_SECRET_ACCESS_KEY` | Credentials |
+
+None set: object storage is treated as a feature this deployment doesn't
+have yet — `/sync/documents` and `/sync/uploads/{id}/object` answer `503`,
+and `/sync/push`, `/sync/pull` and `/sync/ack` keep working exactly as
+before (root CLAUDE.md: "a firm with no server keeps working exactly as
+today"). *Some* but not all five set: the server refuses to start — a
+half-configured bucket that looks live and silently isn't is worse than
+one that plainly isn't there.
+
+| Route | Auth | Purpose |
+|---|---|---|
+| `POST /sync/documents?key=<key>` | mTLS + token | Store a shared document's bytes. The desktop computes `key` itself (`documents/{client_id}/{document_id}`, mirroring the portal's `quarantine/{client_id}/{upload_id}`) so a re-share overwrites the same object. Returns `{objectKey, sizeBytes}` |
+| `DELETE /sync/documents/{key}` | mTLS + token | Remove a shared document's object on unshare. Deleting an already-gone key is not an error — an unshare retried after a partial failure must still succeed |
+| `GET /sync/uploads/{id}/object` | mTLS + token | The desktop downloads a quarantined client upload by its `client_uploads.id` to verify the hash, clean metadata, and ingest — or refuse. `404` unless the row is still `status = 'Pending'` |
+
+**Ordering matters for `Document`.** The bytes must reach the bucket via
+`POST /sync/documents` *before* the desktop pushes the matching `Document`
+upsert on `/sync/push` — `mirror.documents_shared.object_key` is meaningless
+if nothing was ever written under it. `apply()` in `main.rs` now handles
+`"Document"` as an upsert entity type (it already handled the tombstone
+delete); `mirror::upsert_document` writes the row.
+
+**Known gap, out of scope for Step 3d.** `apply()` still has no upsert case
+for `"Payment"` or `"Notification"`, even though `delete_entity` already
+handles both and the spec's `sync_outbox.entity_type` enum (§6) names them.
+Neither blocks object storage, virus scanning or OTP delivery, so it was
+left alone here rather than folded in — flagged for whoever picks up the
+rest of Step 3a's sync coverage.
 
 ---
 

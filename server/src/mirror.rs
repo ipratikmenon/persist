@@ -131,6 +131,32 @@ pub async fn upsert_ip_asset(pool: &PgPool, a: &IpAssetPublic) -> Result<()> {
     Ok(())
 }
 
+pub async fn upsert_document(pool: &PgPool, d: &DocumentPublic) -> Result<()> {
+    sqlx::query(
+        "INSERT INTO mirror.documents_shared
+             (id, client_id, matter_id, filename, category, mime_type,
+              file_size_bytes, version, description, object_key, sha256, updated_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11, now())
+         ON CONFLICT (id) DO UPDATE SET
+             client_id       = EXCLUDED.client_id,
+             matter_id       = EXCLUDED.matter_id,
+             filename        = EXCLUDED.filename,
+             category        = EXCLUDED.category,
+             mime_type       = EXCLUDED.mime_type,
+             file_size_bytes = EXCLUDED.file_size_bytes,
+             version         = EXCLUDED.version,
+             description     = EXCLUDED.description,
+             object_key      = EXCLUDED.object_key,
+             sha256          = EXCLUDED.sha256,
+             updated_at      = now()",
+    )
+    .bind(&d.id).bind(&d.client_id).bind(&d.matter_id).bind(&d.filename)
+    .bind(&d.category).bind(&d.mime_type).bind(d.file_size_bytes).bind(d.version)
+    .bind(&d.description).bind(&d.object_key).bind(&d.sha256)
+    .execute(pool).await.context("upsert document")?;
+    Ok(())
+}
+
 pub async fn upsert_invoice(pool: &PgPool, i: &InvoicePublic) -> Result<()> {
     // Belt and braces: projection.rs already withholds drafts. If one somehow
     // arrives, refuse it here rather than writing it and relying on the API to

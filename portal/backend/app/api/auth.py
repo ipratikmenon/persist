@@ -18,6 +18,7 @@ from app.auth import otp, refresh
 from app.auth.tokens import issue_access_token
 from app.config import get_settings
 from app.db.session import auth_scope
+from app.email import send_otp_email
 from app.models import RequestOtpIn, RequestOtpOut, TokenOut, VerifyOtpIn
 from app.rate_limit import limiter
 
@@ -80,9 +81,13 @@ async def request_otp(
         log.info("otp requested for an address with no active portal user")
         return RequestOtpOut()
 
-    # TODO(M5 Step 3d): hand to the email sender. Until that exists nothing is
-    # delivered — and the code is never returned to the browser or logged.
-    log.info("otp issued (delivery not yet wired)")
+    # The 202 above (and this one) does not wait on whether delivery
+    # succeeds — a slow or failing relay must not become a timing oracle for
+    # account enumeration. Failure is logged, never raised.
+    if await send_otp_email(body.email, code):
+        log.info("otp issued and handed to the relay")
+    else:
+        log.warning("otp issued but not delivered (smtp unconfigured or send failed)")
 
     return RequestOtpOut(debug_code=code if settings.expose_otp_for_tests else None)
 

@@ -8,7 +8,9 @@ Uploads are untrusted until scanned, hashed and ingested by the desktop
 `inbound.client_uploads` and waits for an attorney.
 """
 
+import asyncio
 import hashlib
+import logging
 import uuid
 
 from fastapi import (
@@ -28,7 +30,11 @@ from app.config import get_settings
 from app.db import queries
 from app.db.session import client_scope, client_write_scope
 from app.models import DocumentOut, UploadOut
+from app.object_store import ObjectStoreError, put_object
+from app.scanning import scan_bytes
 from app.storage import signed_url
+
+log = logging.getLogger(__name__)
 
 router = APIRouter(tags=["documents"])
 
@@ -104,9 +110,19 @@ async def upload_document(
     # vault, so a swapped object between here and ingest does not go unnoticed.
     object_key = f"quarantine/{client.client_id}/{upload_id}"
 
-    # TODO(M5 Step 3d): write the bytes to the quarantine bucket and hand them
-    # to the scanner. The row is created either way, so nothing a client sends
-    # is silently dropped — it sits Pending until the storage leg exists.
+    # Written before the row exists: a row that names an object never
+    # actually stored is worse than refusing the upload outright, since the
+    # desktop would later find nothing at that key when it tries to pull it.
+    # An unconfigured store (dev/test, or a firm that hasn't provisioned one
+    # yet) is not a failure — see object_store.py — and simply skips this.
+    try:
+        await asyncio.to_thread(put_object, object_key, contents, file.content_type)
+    except ObjectStoreError as e:
+        log.error("quarantine object storage failed: %s", e)
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "Could not store that file right now. Try again shortly.",
+        ) from e
 
     async with client_write_scope(client.client_id) as conn:
         row = await queries.insert_upload(
@@ -121,6 +137,16 @@ async def upload_document(
             object_key=object_key,
             sha256=sha256,
         )
+
+        # An unconfigured scanner (same dev/test case as above) returns None
+        # and leaves scan_status at its inserted default, Pending — never
+        # waved through as Clean, per spec §15.12.
+        scan_result = await scan_bytes(contents)
+        if scan_result is not None:
+            await queries.update_upload_scan_status(
+                conn, client_id=client.client_id, upload_id=upload_id, scan_status=scan_result
+            )
+            row["scan_status"] = scan_result
 
     return UploadOut(**row)
 
